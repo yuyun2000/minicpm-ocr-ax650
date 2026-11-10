@@ -1,0 +1,44 @@
+# 模型权重 / 转换产物（放 HF：yunyu1258/minicpm-ocr-1.0-ax650）
+*.safetensors
+*.safetensors.index.json
+*.axmodel
+*.onnx
+*.bin
+*.gguf
+*.pt
+*.pth
+origin/
+origin_text/
+llm_v2/
+llm_final/
+llm_par/
+vision_task*/
+axllm_pkg/
+work/
+
+# tokenizer 中间产物（最终 txt 随模型包发布）
+minicpm_ocr_tokenizer.txt
+*_tokenizer.txt
+
+# 校准数据
+calib/
+calib_data/
+*.npy
+*.tar.gz
+
+# 运行日志 / pid / 缓存
+logs/
+*.log
+*.pid
+vision_cache/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# 系统
+.DS_Store
+Thumbs.db

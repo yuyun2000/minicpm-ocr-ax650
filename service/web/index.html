@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>MiniCPM-OCR 测试台 · AX650</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230282cb'/%3E%3Ctext x='16' y='22' font-family='Arial,sans-serif' font-size='14' font-weight='bold' fill='white' text-anchor='middle'%3EM5%3C/text%3E%3C/svg%3E">
+<script>
+  /* 首帧前定好配色，避免暗色用户看到闪白：auto 时读系统偏好。
+     与 app.js 里的 applyTheme 使用同一 key，两边逻辑保持一致。 */
+  (function () {
+    var pref = 'auto';
+    try { pref = localStorage.getItem('moc-theme') || 'auto'; } catch (e) {}
+    var dark = pref === 'dark' ||
+      (pref === 'auto' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+    var root = document.documentElement;
+    root.setAttribute('data-theme', dark ? 'dark' : 'light');
+    root.setAttribute('data-theme-pref', pref);
+  })();
+</script>
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<header class="m5-header">
+  <div class="m5-header__inner">
+    <a class="m5-logo" href="./">
+      <span class="m5-logo__mark" aria-hidden="true">M5</span>
+      <span>MiniCPM-OCR 测试台</span>
+    </a>
+    <nav class="m5-nav" aria-label="页面导航">
+      <a class="m5-nav__item is-active" href="#panel-input" aria-current="page">识别</a>
+      <a class="m5-nav__item" href="#panel-result">结果</a>
+      <a class="m5-nav__item" href="#panel-status">接口状态</a>
+    </nav>
+    <div class="header-tools">
+      <span class="m5-tag m5-tag--neutral" id="health-tag" title="板端 /api/health 状态">
+        <i class="m5-dot" aria-hidden="true"></i>
+        <span id="health-text">检测中</span>
+      </span>
+      <button class="m5-btn m5-btn--ghost m5-btn--sm" id="theme-toggle" type="button"
+              aria-label="切换配色：跟随系统">主题：跟随系统</button>
+    </div>
+  </div>
+</header>
+
+<main class="m5-container app-main">
+  <div class="page-head">
+    <div>
+      <h1 class="m5-section-title">MiniCPM-OCR 1.0 · 板端测试台</h1>
+      <p>
+        AX650 NPU ｜ vision 448×448 INT8 + Qwen3.5-hybrid LLM INT8 ｜
+        所有请求走相对路径 <code>/api/ocr</code>、<code>/api/chat</code>、<code>/api/health</code>
+      </p>
+    </div>
+    <div class="page-head__meta" id="board-meta">
+      <span class="m5-tag m5-tag--neutral">等待 /api/health</span>
+    </div>
+  </div>
+
+  <div class="app-grid">
+
+    <!-- ==================== 左：输入 ==================== -->
+    <aside class="panel panel--input" id="panel-input" aria-labelledby="input-title">
+      <div class="panel__head">
+        <h2 class="panel__title" id="input-title">输入</h2>
+        <div class="seg" role="tablist" aria-label="输入类型">
+          <button class="seg__item is-active" id="tab-image" type="button"
+                  role="tab" aria-selected="true" aria-controls="pane-image">图片识别</button>
+          <button class="seg__item" id="tab-text" type="button"
+                  role="tab" aria-selected="false" aria-controls="pane-text">文本对话</button>
+        </div>
+      </div>
+
+      <div class="panel__body">
+        <form id="input-form" novalidate autocomplete="off">
+
+          <!-- ---------- 图片识别 ---------- -->
+          <div id="pane-image" role="tabpanel" aria-labelledby="tab-image">
+
+            <div class="dropzone" id="dropzone" tabindex="0" role="button"
+                 aria-label="上传图片：点击选择文件，或拖拽、粘贴图片">
+              <span class="dropzone__icon" aria-hidden="true">
+                <svg width="22" height="22" viewBox="0 0 24 24" fill="none"
+                     stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round">
+                  <rect x="3" y="4" width="18" height="16" rx="3"></rect>
+                  <circle cx="8.5" cy="9.5" r="1.6"></circle>
+                  <path d="M20 15.5 15.8 11.3 6 21"></path>
+                </svg>
+              </span>
+              <span class="dropzone__title">拖拽图片到此处，或点击选择</span>
+              <span class="dropzone__hint">支持 PNG / JPEG / WebP，也可以直接 Ctrl+V 粘贴</span>
+              <input class="visually-hidden" type="file" id="file-input" accept="image/*"
+                     aria-label="选择图片文件">
+            </div>
+
+            <div class="preview" id="preview" hidden>
+              <div class="preview__frame">
+                <img class="preview__img" id="preview-img" alt="待识别的图片缩略图">
+              </div>
+              <div class="preview__meta">
+                <span class="preview__name" id="preview-name"></span>
+                <button class="m5-btn m5-btn--text" id="preview-clear" type="button">移除</button>
+              </div>
+            </div>
+
+            <div class="m5-field">
+              <label class="m5-label" for="task-select">任务类型</label>
+              <select class="m5-select" id="task-select">
+                <option value="Text Recognition:">Text Recognition · 文本识别</option>
+                <option value="Table Recognition:">Table Recognition · 表格识别</option>
+                <option value="Formula Recognition:">Formula Recognition · 公式识别</option>
+                <option value="Seal Recognition:">Seal Recognition · 印章识别</option>
+                <option value="Chart to Table:">Chart to Table · 图表转表格</option>
+                <option value="__custom__">自定义 prompt</option>
+              </select>
+            </div>
+
+            <div class="m5-field" id="custom-prompt-field" hidden>
+              <label class="m5-label" for="custom-prompt">自定义 prompt</label>
+              <input class="m5-input" id="custom-prompt" type="text"
+                     placeholder="例如：Extract the &quot;store_name&quot;, &quot;amount&quot;. Format as a JSON object.">
+              <p class="m5-help">直接作为 prompt 发送，不走预设任务词。</p>
+            </div>
+
+            <div class="m5-field">
+              <p class="m5-help" id="prompt-echo">将发送：<code>Text Recognition:</code></p>
+            </div>
+
+            <fieldset class="m5-fieldset">
+              <legend class="m5-label">识别模式</legend>
+              <div class="check-row">
+                <label class="m5-check m5-check--boxed m5-check--radio">
+                  <input type="radio" name="mode" value="page" checked>
+                  整页模式
+                </label>
+                <label class="m5-check m5-check--boxed m5-check--radio">
+                  <input type="radio" name="mode" value="region">
+                  单区域模式
+                </label>
+              </div>
+              <p class="inline-hint" id="mode-hint">服务端切片（全局图 + 最多 9 片），返回每片耗时与片数。</p>
+            </fieldset>
+
+            <div class="m5-field">
+              <label class="m5-label" for="max-tokens">最大输出 tokens</label>
+              <input class="m5-input" id="max-tokens" type="number" inputmode="numeric"
+                     min="16" max="4096" step="16" value="1024">
+              <p class="m5-help">公式 / 长表格建议 2048；截断时先调大这个值。</p>
+            </div>
+
+            <div class="form-actions">
+              <button class="m5-btn m5-btn--primary" id="submit-btn" type="submit">开始识别</button>
+              <button class="m5-btn m5-btn--ghost" id="cancel-btn" type="button" hidden>取消</button>
+            </div>
+          </div>
+
+          <!-- ---------- 文本对话 ---------- -->
+          <div id="pane-text" role="tabpanel" aria-labelledby="tab-text" hidden>
+            <div class="m5-field">
+              <label class="m5-label" for="chat-prompt">对话内容</label>
+              <textarea class="m5-textarea" id="chat-prompt"
+                        placeholder="无图对话，例如：用一句话解释什么是 OTSL 表格表示。"></textarea>
+              <p class="m5-help">纯文本请求走 <code>/api/chat</code>（JSON），不经过图片编码。</p>
+            </div>
+
+            <div class="m5-field">
+              <label class="m5-label" for="chat-max-tokens">最大输出 tokens</label>
+              <input class="m5-input" id="chat-max-tokens" type="number" inputmode="numeric"
+                     min="16" max="4096" step="16" value="512">
+            </div>
+
+            <div class="form-actions">
+              <button class="m5-btn m5-btn--primary" id="chat-submit-btn" type="submit">发送对话</button>
+              <button class="m5-btn m5-btn--ghost" id="chat-cancel-btn" type="button" hidden>取消</button>
+            </div>
+          </div>
+
+        </form>
+      </div>
+    </aside>
+
+    <!-- ==================== 右：结果 ==================== -->
+    <section class="results" id="panel-result" aria-label="识别结果与指标">
+
+      <div class="panel">
+        <div class="panel__head">
+          <h2 class="panel__title">结果</h2>
+          <div class="panel__actions">
+            <span class="m5-tag m5-tag--neutral" id="result-state">空闲</span>
+            <button class="m5-btn m5-btn--text" id="copy-result" type="button" hidden>复制原始输出</button>
+          </div>
+        </div>
+        <div class="panel__body">
+          <!-- 空态 -->
+          <div class="m5-empty" id="result-empty">
+            <div class="m5-empty__icon" aria-hidden="true">＋</div>
+            <p class="m5-h3">还没有识别结果</p>
+            <p class="m5-caption">在左侧选择一张文档图片并点击「开始识别」，这里会显示 Markdown 渲染结果与性能指标。</p>
+          </div>
+
+          <!-- 加载态 -->
+          <div class="result-loading" id="result-loading" hidden>
+            <div class="loading-status">
+              <i class="m5-dot" aria-hidden="true"></i>
+              <span id="loading-text">正在请求板端…</span>
+            </div>
+            <div class="skeleton" aria-hidden="true">
+              <div class="skeleton__line skeleton__line--mid"></div>
+              <div class="skeleton__line"></div>
+              <div class="skeleton__line skeleton__line--short"></div>
+              <div class="skeleton__line"></div>
+            </div>
+          </div>
+
+          <!-- 错误态 -->
+          <div id="result-error" hidden>
+            <div class="m5-alert m5-alert--danger" id="result-error-text" role="alert"></div>
+          </div>
+
+          <!-- 结果内容 -->
+          <div id="result-content" hidden>
+            <div class="prose" id="markdown-out"></div>
+            <details class="raw" id="raw-details">
+              <summary class="raw__summary">原始输出（OTSL / Markdown / 纯文本）</summary>
+              <pre class="code-block"><code id="raw-out"></code></pre>
+            </details>
+          </div>
+        </div>
+      </div>
+
+      <!-- 指标面板 -->
+      <section class="metrics" aria-labelledby="metrics-title">
+        <div class="metrics__head">
+          <h2 class="metrics__title" id="metrics-title">性能指标</h2>
+          <span class="m5-caption" id="metrics-note">等待请求</span>
+        </div>
+        <div class="kpis">
+          <div class="m5-kpi">
+            <span class="m5-kpi__label">TTFT（ms）</span>
+            <strong class="m5-kpi__value" id="kpi-ttft">—</strong>
+          </div>
+          <div class="m5-kpi">
+            <span class="m5-kpi__label">Decode（tok/s）</span>
+            <strong class="m5-kpi__value" id="kpi-decode">—</strong>
+          </div>
+          <div class="m5-kpi">
+            <span class="m5-kpi__label">总耗时</span>
+            <strong class="m5-kpi__value" id="kpi-elapsed">—</strong>
+          </div>
+          <div class="m5-kpi">
+            <span class="m5-kpi__label">Prompt tokens</span>
+            <strong class="m5-kpi__value" id="kpi-prompt-tokens">—</strong>
+          </div>
+          <div class="m5-kpi">
+            <span class="m5-kpi__label">Completion tokens</span>
+            <strong class="m5-kpi__value" id="kpi-completion-tokens">—</strong>
+          </div>
+          <div class="m5-kpi">
+            <span class="m5-kpi__label">切片数</span>
+            <strong class="m5-kpi__value" id="kpi-slices">—</strong>
+          </div>
+        </div>
+      </section>
+
+      <!-- 切片耗时（整页模式） -->
+      <section class="panel" id="slices-panel" aria-labelledby="slices-title" hidden>
+        <div class="panel__head">
+          <h2 class="panel__title" id="slices-title">切片耗时</h2>
+          <span class="m5-tag m5-tag--neutral" id="slices-count">—</span>
+        </div>
+        <div class="panel__body">
+          <div class="slice-list" id="slice-list"></div>
+          <p class="m5-help" id="slices-help">单位 ms，顺序与服务端返回的 slice_times 一致。</p>
+        </div>
+      </section>
+
+    </section>
+  </div>
+
+  <!-- ==================== 接口状态 ==================== -->
+  <section class="status-grid" id="panel-status" aria-label="接口状态与调用约定">
+    <div class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">接口状态</h2>
+        <button class="m5-btn m5-btn--ghost m5-btn--sm" id="health-refresh" type="button">刷新</button>
+      </div>
+      <div class="panel__body">
+        <div class="m5-table-wrap">
+          <table class="m5-table m5-table--kv">
+            <tbody>
+              <tr><th scope="row">服务</th><td id="health-service">检测中…</td></tr>
+              <tr><th scope="row">板端模型</th><td id="health-model">—</td></tr>
+              <tr><th scope="row">上游地址</th><td id="health-board">—</td></tr>
+              <tr><th scope="row">最近检查</th><td id="health-time">—</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="m5-help m5-help--stack" id="health-hint">
+          GET <code>/api/health</code> 期望返回 <code>{"ok": true, "board": {...}}</code>。
+        </p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel__head">
+        <h2 class="panel__title">调用约定</h2>
+        <span class="m5-tag m5-tag--neutral">同源相对路径</span>
+      </div>
+      <div class="panel__body">
+        <ul class="endpoint-list">
+          <li>
+            <code class="m5-mono">POST /api/ocr</code>
+            <span>multipart/form-data：<code>image</code> 文件、<code>prompt</code>、<code>mode</code>=page|region、<code>max_tokens</code></span>
+          </li>
+          <li>
+            <code class="m5-mono">POST /api/chat</code>
+            <span>application/json：<code>{"prompt": "...", "max_tokens": n}</code></span>
+          </li>
+          <li>
+            <code class="m5-mono">GET /api/health</code>
+            <span>健康检查，返回 <code>ok</code> 与板端信息</span>
+          </li>
+        </ul>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="m5-footer">
+  <div class="m5-container">
+    <div class="m5-footer__cols">
+      <div>
+        <p class="m5-footer__title">关于</p>
+        <p>MiniCPM-OCR 1.0 在 AX650 NPU 上的板端测试台，前端为纯静态资源，由板端 Flask 自托管。</p>
+        <p>非 m5stack.com 官方站点，仅用于内部设备验证。</p>
+      </div>
+      <div>
+        <p class="m5-footer__title">接口</p>
+        <a href="#panel-status">POST /api/ocr</a><br>
+        <a href="#panel-status">POST /api/chat</a><br>
+        <a href="#panel-status">GET /api/health</a>
+      </div>
+      <div>
+        <p class="m5-footer__title">实现</p>
+        <p>设计语言：M5Stack Web Design Tokens</p>
+        <p>零依赖原生 JS · 无构建步骤 · 无 CDN</p>
+      </div>
+      <div>
+        <p class="m5-footer__title">数据边界</p>
+        <p>图片与文本仅在板端处理，不上传出内网。</p>
+        <p>原始输出原样展示，不做静默后处理。</p>
+      </div>
+    </div>
+    <div class="m5-footer__bottom">
+      MiniCPM-OCR 1.0 · AX650 板端测试台 ｜ 前端资源位于 <code class="m5-mono">demo/minicpm-ocr/web/</code>
+    </div>
+  </div>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>
