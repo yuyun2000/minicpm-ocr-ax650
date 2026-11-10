@@ -199,3 +199,16 @@ python3 scripts/assemble_package.py --work-dir . --dest axllm_pkg \
 **关键结论**：视觉编码器必须 **U16 激活**，且必须用 **Pulsar2 6.0** 编译全量图——7.0 / 8.0 都会在
 `build op serially` 阶段原生崩溃（`new_ddr_tensor` 后进程被杀），6.0 可稳定编出 511 MB axmodel。
 详见 [docs/accuracy.md](docs/accuracy.md) 与转换仓库的问题报告。
+
+
+## OmniDocBench 评测（2026-11-11）
+
+见 [docs/omnidocbench.md](docs/omnidocbench.md)。摘要（12 页分层抽样）：
+
+| 模式 | 平均文本编辑距离 | 平均耗时 |
+|---|---|---|
+| page（网格切片 + 统一 prompt，现状） | **0.7346（TextEdit 73.46）** | 91.8 s/页 |
+| oracle（GT 版面框 + 按类型 prompt，上限） | 见文档（运行中） | — |
+
+并发：文本并发 1 → 0.55 req/s（1.82 s）；OCR 并发 1 → 0.082 req/s（12.2 s/块）；axllm 单并发，请求排队。
+官方 1.2 pages/s 是 vLLM/L40S 口径，端侧 AX650 差 2~3 个数量级属预期。
