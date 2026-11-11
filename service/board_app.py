@@ -68,6 +68,149 @@ def letterbox_448(im: Image.Image) -> tuple[Image.Image, float]:
     return canvas, (nw * nh) / float(SCALE_RESOLUTION ** 2)
 
 
+# ---------- 表格模式：整表识别 / 按行切分后合并 OTSL ----------
+TABLE_PROMPT = "Table Recognition:"
+
+
+def rule_score(img: Image.Image) -> tuple[int, int, float]:
+    """统计（缩放到 448 后）的水平/垂直长线条数量与墨迹比例，用于表格启发式。
+
+    阈值 235 能覆盖浅灰表格边框（截图里常见 #e5e5e5），同时正文页的竖线统计很低。
+    """
+    im = img.convert("L")
+    g = np.asarray(im.resize((min(im.width, 448), min(im.height, 448)), Image.BILINEAR), dtype=np.uint8)
+    dark = g < 235
+    h_rules = int((dark.mean(axis=1) > 0.5).sum())
+    v_rules = int((dark.mean(axis=0) > 0.5).sum())
+    return h_rules, v_rules, float(dark.mean())
+
+
+def looks_like_table(img: Image.Image) -> bool:
+    """表格启发式（实测：表格截图 v_rules 15~90；正文页 v_rules ~10）。
+
+    - 表格：竖线多（列分隔）且至少几条横线；
+    - 正文页：横线多但竖线少。
+    """
+    h_rules, v_rules, ink = rule_score(img)
+    if ink > 0.6:  # 整页大图/照片，不按表格走
+        return False
+    if v_rules >= 15 and h_rules >= 4:
+        return True
+    if h_rules >= 10 and v_rules >= 6:
+        return True
+    return False
+
+
+def _parse_table_rows(text: str):
+    """把 OTSL / markdown 表格转成 rows(list[list[str]])，失败返回 None。"""
+    md = text
+    if "<otsl>" in text:
+        try:
+            md = otsl_to_markdown(text) or text
+        except Exception:
+            md = text
+    lines = [ln.strip() for ln in md.splitlines() if ln.strip().startswith("|")]
+    if not lines:
+        return None
+    rows = []
+    for ln in lines:
+        cells = [c.strip() for c in ln.strip().strip("|").split("|")]
+        if cells and all(re.fullmatch(r"-{2,}", c) for c in cells if c):
+            continue
+        rows.append(cells)
+    return rows or None
+
+
+def _rows_to_markdown(rows: list[list[str]]) -> str:
+    if not rows:
+        return ""
+    width = max(len(r) for r in rows)
+    norm = [r + [""] * (width - len(r)) for r in rows]
+    out = ["| " + " | ".join(norm[0]) + " |", "| " + " | ".join(["---"] * width) + " |"]
+    for r in norm[1:]:
+        out.append("| " + " | ".join(r) + " |")
+    return "\n".join(out)
+
+
+def _merge_rows(tables: list[list[list[str]]]) -> list[list[str]]:
+    """按行切分的多张表垂直合并：去掉重叠造成的连续重复行。"""
+    merged: list[list[str]] = []
+    for rows in tables:
+        for r in rows:
+            if merged and r == merged[-1]:
+                continue
+            merged.append(r)
+    return merged
+
+
+def ocr_table(img: Image.Image, max_tokens: int) -> dict:
+    """整表识别：小表一次送；大表按行切（保留全部列）后按行合并，避免把表切碎成列。"""
+    w, h = img.size
+    parts = []
+    contents = []
+    if max(w, h) <= 2048:
+        block, _ = letterbox_448(img)
+        r = call_axllm(block, TABLE_PROMPT, max_tokens)
+        contents.append(r["content"])
+        parts.append({"kind": "table-full", "size": (w, h), "elapsed_s": r["elapsed_s"],
+                      "tokens": r.get("completion_tokens")})
+    else:
+        # 按行切：每片宽度保持原宽（缩放后仍含全部列），只沿垂直方向切
+        scale = 448.0 / w
+        strip_h = max(64, int(448.0 / scale)) if scale > 0 else h
+        n = max(2, math.ceil(h / max(strip_h, 1)))
+        overlap = max(8, int(strip_h * 0.06))
+        step = max(1, (h - overlap) // n if n > 1 else h)
+        y = 0
+        idx = 0
+        while y < h:
+            y1 = min(h, y + strip_h + overlap)
+            crop = img.crop((0, y, w, y1))
+            block, _ = letterbox_448(crop)
+            r = call_axllm(block, TABLE_PROMPT, max_tokens)
+            contents.append(r["content"])
+            parts.append({"kind": f"table-row-{idx}", "y": (y, y1), "elapsed_s": r["elapsed_s"],
+                          "tokens": r.get("completion_tokens")})
+            idx += 1
+            if y1 >= h:
+                break
+            y += step
+
+    if len(contents) == 1:
+        try:
+            markdown = otsl_to_markdown(contents[0]) or contents[0]
+        except Exception:
+            markdown = contents[0]
+    else:
+        tables = [rows for rows in (_parse_table_rows(c) for c in contents) if rows]
+        markdown = _rows_to_markdown(_merge_rows(tables)) if tables else "\n\n".join(contents)
+    return {"contents": contents, "parts": parts, "markdown": markdown}
+
+
+# ---------- 宽图（长条文字）分块识别：左右切块后按阅读顺序拼接 ----------
+def ocr_wide(img: Image.Image, prompt: str, max_tokens: int) -> dict:
+    w, h = img.size
+    n = max(2, math.ceil(w / 1000.0))
+    step = max(1, w // n)
+    overlap = max(20, int(step * 0.06))
+    contents, parts = [], []
+    x = 0
+    idx = 0
+    while x < w:
+        x1 = min(w, x + step + overlap)
+        crop = img.crop((x, 0, x1, h))
+        block, _ = letterbox_448(crop)
+        r = call_axllm(block, prompt, max_tokens)
+        contents.append(r["content"])
+        parts.append({"kind": f"wide-{idx}", "x": (x, x1), "elapsed_s": r["elapsed_s"],
+                      "tokens": r.get("completion_tokens")})
+        idx += 1
+        if x1 >= w:
+            break
+        x += step
+    return {"contents": contents, "parts": parts, "markdown": "\n".join(contents)}
+
+
 # ---------- 推理后端 ----------
 def board_model() -> str:
     global MODEL
@@ -120,12 +263,47 @@ def api_ocr():
     f = request.files.get("image")
     if f is None:
         return jsonify({"error": "缺少 image"})
-    prompt = request.form.get("prompt", "Text Recognition:")
-    mode = request.form.get("mode", "region")
+    prompt = request.form.get("prompt", "")
+    mode = request.form.get("mode", "auto")
     max_tokens = int(request.form.get("max_tokens", 768))
     img = Image.open(io.BytesIO(f.read())).convert("RGB")
     t0 = time.time()
+    if mode == "auto":
+        w, h = img.size
+        if looks_like_table(img):
+            mode = "table"
+        elif (h >= 1.2 * w and max(w, h) >= 1200) or max(w, h) >= 2200:
+            mode = "page"
+        elif w >= 2.5 * h and w >= 1200:
+            mode = "wide"
+        else:
+            mode = "region"
+    if mode == "table":
+        try:
+            out = ocr_table(img, max_tokens)
+            elapsed = round(time.time() - t0, 3)
+            comp = sum(p.get("tokens") or 0 for p in out["parts"])
+            metrics = {"mode": "table", "slices": len(out["parts"]), "parts": out["parts"],
+                       "elapsed_s": elapsed, "completion_tokens": comp,
+                       "decode_tok_s": round(comp / elapsed, 2) if comp and elapsed else None,
+                       "ttft_ms": int((out["parts"][0]["elapsed_s"]) * 1000) if out["parts"] else None}
+            return jsonify({"content": "\n\n".join(out["contents"]), "markdown": out["markdown"],
+                            "metrics": metrics, "error": None})
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"{type(exc).__name__}: {exc}"})
+    if not prompt:
+        prompt = "Text Recognition:"
     try:
+        if mode == "wide":
+            out = ocr_wide(img, prompt, max_tokens)
+            elapsed = round(time.time() - t0, 3)
+            comp = sum(p.get("tokens") or 0 for p in out["parts"])
+            metrics = {"mode": "wide", "slices": len(out["parts"]), "parts": out["parts"],
+                       "elapsed_s": elapsed, "completion_tokens": comp,
+                       "decode_tok_s": round(comp / elapsed, 2) if comp and elapsed else None,
+                       "ttft_ms": int(out["parts"][0]["elapsed_s"] * 1000) if out["parts"] else None}
+            return jsonify({"content": "\n".join(out["contents"]), "markdown": out["markdown"],
+                            "metrics": metrics, "error": None})
         if mode == "page":
             slices = make_slices(img)
             skip_global = request.form.get("skip_global", "1") != "0"

@@ -132,15 +132,23 @@
               <legend class="m5-label">识别模式</legend>
               <div class="check-row">
                 <label class="m5-check m5-check--boxed m5-check--radio">
-                  <input type="radio" name="mode" value="page" checked>
-                  整页模式
+                  <input type="radio" name="mode" value="auto" checked>
+                  自动（推荐）
+                </label>
+                <label class="m5-check m5-check--boxed m5-check--radio">
+                  <input type="radio" name="mode" value="table">
+                  表格
+                </label>
+                <label class="m5-check m5-check--boxed m5-check--radio">
+                  <input type="radio" name="mode" value="page">
+                  整页
                 </label>
                 <label class="m5-check m5-check--boxed m5-check--radio">
                   <input type="radio" name="mode" value="region">
-                  单区域模式
+                  单区域
                 </label>
               </div>
-              <p class="inline-hint" id="mode-hint">服务端切片（全局图 + 最多 9 片），返回每片耗时与片数。</p>
+              <p class="inline-hint" id="mode-hint">自动：检测到表格线走表格模式，大图走整页切片，其余单区域。</p>
             </fieldset>
 
             <div class="m5-field">
@@ -312,7 +320,7 @@
         <ul class="endpoint-list">
           <li>
             <code class="m5-mono">POST /api/ocr</code>
-            <span>multipart/form-data：<code>image</code> 文件、<code>prompt</code>、<code>mode</code>=page|region、<code>max_tokens</code></span>
+            <span>multipart/form-data：<code>image</code> 文件、<code>prompt</code>、<code>mode</code>=auto|table|page|region、<code>max_tokens</code></span>
           </li>
           <li>
             <code class="m5-mono">POST /api/chat</code>

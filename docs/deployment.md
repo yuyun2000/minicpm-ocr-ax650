@@ -243,3 +243,16 @@ ssh root@<board> 'cd /root/minicpm-ocr-v2 && \
 2. U16 vision 包的实际体积、加载后 `remain_cmm`、单块耗时。
 3. 板端一次性开机自启（systemd unit 或 `/etc/rc.local`）——本项目用 `service/start.sh` 手工拉起，未做开机自启。
 4. 板端 Flask 的 `MAX_CONTENT_LENGTH`（建议 20 MB）与并发上限未设。
+
+
+## 服务 API 的识别模式
+
+`POST /api/ocr`（multipart）：`image`、`prompt`、`mode`、`max_tokens`
+
+- `mode=auto`（默认）：表格线检测 → 表格模式；竖长大图 → 整页切片；宽条 → 列分块；其余 → 单区域；
+- `mode=table`：整表识别（大表按行切分后合并）→ 一个 Markdown 表格；
+- `mode=page`：官方 9 片切片逐片识别后拼接；
+- `mode=wide`：宽条文字按列分块后顺序拼接；
+- `mode=region`：整图单块识别。
+
+表格截图用 `auto`/`table`；`page` 会把表格沿列切开导致乱序（见 [table-mode.md](table-mode.md)）。

@@ -23,8 +23,10 @@
   var DEFAULT_IMAGE_PROMPT = 'Text Recognition:';
 
   var MODE_HINT = {
-    page: '服务端切片（全局图 + 最多 9 片），返回每片耗时与片数。',
-    region: '整图作为单个区域送入，不切片；适合已裁好的单栏文本或单张表格。'
+    auto: '自动：检测到表格线走表格模式；大图（长边 >900px）走整页切片；其余整图单区域。',
+    table: '表格模式：整表识别（大表按行切分后合并），输出 Markdown 表格；忽略上方 prompt，固定用 Table Recognition。',
+    page: '整页模式：服务端按官方 9 片切片（跳过全局缩略片），逐片识别后拼接，返回每片耗时。',
+    region: '单区域模式：整图作为单个区域送入，不切片；适合已裁好的单栏文本或单张表格。'
   };
 
   // ---------------------------------------------------------------- DOM 引用
@@ -532,7 +534,7 @@
     var times = m.slice_times;
     var count = m.slices;
     var visible = (count !== null && count > 0) || times.length > 0;
-    if (!visible || mode === 'region' || mode === 'chat') {
+    if (!visible || mode === 'page' || mode === 'chat') {
       el.slicesPanel.hidden = true;
       return;
     }
@@ -787,7 +789,8 @@
       el.copyResult.textContent = '复制原始输出';
     }
 
-    var label = kind === 'chat' ? '完成 · 文本对话' : (mode === 'region' ? '完成 · 单区域' : '完成 · 整页');
+    var resolved = (data && data.metrics && data.metrics.mode) || mode;
+    var label = kind === 'chat' ? '完成 · 文本对话' : (resolved === 'table' ? '完成 · 表格' : (resolved === 'page' ? '完成 · 整页' : '完成 · 单区域'));
     setResultState('done', label);
 
     var metrics = paintMetrics(data && data.metrics ? data.metrics : null);

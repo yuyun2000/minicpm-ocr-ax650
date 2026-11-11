@@ -7,7 +7,7 @@ AX650 板端（Ubuntu 22.04 aarch64）自托管的纯静态网页测试台，用
 零依赖、无构建步骤、无 CDN；只用原生 HTML / CSS / JS，由板端 Flask 直接托管。
 
 ```
-service/web/
+demo/minicpm-ocr/web/
 ├── index.html    页面结构（M5Stack 组件命名 m5-*，语义化标签 + ARIA）
 ├── styles.css    设计 token + 组件样式 + 页面布局 + 暗色扩展（单文件，无需构建）
 ├── app.js        上传/请求/渲染/指标/主题/健康检查（IIFE，无全局污染）
@@ -130,7 +130,7 @@ def api_health():
     return jsonify({"ok": True, "board": {"model": "minicpm-ocr"}})
 ```
 
-启动：`cd service && python3 board_app.py`（默认 `0.0.0.0:8080`，可用 `PORT` 覆盖），浏览器访问 `http://<板子 IP>:8080/`；或直接用 `./service/start.sh start` 同时拉起 axllm 与 Flask。
+启动：`python3 web_app.py --host 0.0.0.0 --port 8080`，浏览器访问 `http://<板子 IP>:8080/`。
 
 **注意**
 
@@ -211,7 +211,7 @@ def api_health():
 
 ## 5. 已知边界与设计决定
 
-1. **`slice_times` 单位按毫秒处理**。接口约定只给了数组，没有单位；若板端实际返回秒，页面会把数值当 ms 显示（数量级会明显不对）。本仓库 `service/board_app.py` 目前填的是**秒**（每片 `elapsed_s`），所以整页模式下每片耗时 chip 会小 1000×——已知不一致，改 `board_app.py` 里 `slice_times.append(...)` 乘 1000 即可（或在 §1.1 的响应里补 `slice_times_unit` 字段后由前端读取）。
+1. **`slice_times` 单位按毫秒处理**。接口约定只给了数组，没有单位；若板端实际返回秒，页面会把数值当 ms 显示（数量级会明显不对）。届时改 `app.js` 的 `sliceLabel()` 一行即可，或在 §1.1 的响应里补 `slice_times_unit` 字段后由前端读取。
 2. **不加载 web font**：板端离线，Montserrat 未随包分发；字体栈完整保留，装了则生效，没装则回退到系统无衬线 + 系统中文字体。想完全一致可把 woff2 放进本目录并加 `@font-face`（会增加体积）。
 3. **Markdown 是最小子集**，只服务「没有现成 HTML 时的降级阅读」；表格、代码、列表覆盖 OCR 场景，公式不渲染。
 4. **OTSL 解析在后端**。前端保留原文 + 提示，避免与 `otsl_to_md.py` 出现两套不一致的实现。
@@ -222,7 +222,7 @@ def api_health():
 ## 6. 本地预览（不接板端）
 
 ```bash
-cd service/web && python3 -m http.server 8000
+cd demo/minicpm-ocr/web && python3 -m http.server 8000
 # 打开 http://127.0.0.1:8000/ —— 布局/主题可用，但 /api/* 会 404：
 # 健康标签显示「离线」、提交后结果区给出明确错误。这本身就是错误态的自检。
 ```
