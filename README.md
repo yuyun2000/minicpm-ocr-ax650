@@ -208,6 +208,7 @@ LLM 用 Pulsar2 8.0（`llm_build2`）；**vision 必须 U16 且必须用 Pulsar2
 | U16 vision axmodel | ✅ 511 MB / 615 ms / cosine **0.995322**，已部署板端并上线 HF |
 | 表格模式（auto/table/wide） | ✅ 修复表格被整页切片切碎乱序的问题（[docs/table-mode.md](docs/table-mode.md)） |
 | 版面模式（DocLayout-YOLO U16） | ✅ 35 MB / 212 ms，boxes cos 0.999999 / logits 0.99995，板端已上线（[docs/layout-mode.md](docs/layout-mode.md)） |
+| 第二台设备（AX650C） | ✅ 192.168.10.105:8088 已部署并实测（表格 23.2 s / 版面 21.2 s / 流式首字 0.37 s），见 [docs/deploy-105.md](docs/deploy-105.md) |
 | 板端服务 + M5Stack 网页 | ✅ `auto/table/layout/page/wide/region` 六种模式，`/api/health` 返回 `layout_model` |
 | 模型仓 | ✅ [`yunyu1258/minicpm-ocr-1.0-ax650`](https://huggingface.co/yunyu1258/minicpm-ocr-1.0-ax650)：37 文件 / 2730 MB，含 `sha256sum.txt` |
 | 端到端精度 | ✅ 单块表格 字符相似度 1.0、数字 12/12；OmniDocBench 12 页 page/oracle 两口径（[docs/omnidocbench.md](docs/omnidocbench.md)） |

@@ -242,6 +242,16 @@ ssh root@<board> 'cd /root/minicpm-ocr-v2 && \
 
 ---
 
+## 已验证设备矩阵
+
+| 设备 | 芯片 / 板型 | CMM | 运行时 | 网页端口 | 备注 |
+|---|---|---|---|---|---|
+| 192.168.10.144 | AX650N / M5Stack 8G 板 | 4096 MB | libax_engine V1.45.0 (2024-09) | 8080 | 首发部署板 |
+| 192.168.10.105 | **AX650C** / `AX650N_M5stack_8G` | **6144 MB** | libax_engine V3.6.4 (2025-08) | **8088** | 预装 M5Stack ModuleLLM 占用 80/8000/8080；同包直接可跑 |
+
+两台设备均验证：vision U16 cosine 0.9953、表格/版面模式正常、流式 SSE 正常。
+105 的部署记录见 [../notes 对应文档]（`docs/deploy-105.md`）。
+
 ## 8. 后续可继续优化（非阻塞）
 
 已完成：v2 启动日志（`max_token_len=2047` / `prefill_max_token_num=1152` / VisionModule 256 token）、
