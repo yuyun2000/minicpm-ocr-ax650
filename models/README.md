@@ -27,6 +27,7 @@ cd axllm_pkg && shasum -a 256 -c sha256sum.txt
 | `model.embed_tokens.weight.bfloat16.bin` | 508,108,800 | `d2ecb95a65466693` | 词表 embedding（248100 × 1024, bf16） |
 | `minicpm_ocr_tokenizer.txt` | 12,102,644 | `96476e1f29264b6d` | HF tokenizer → axllm txt（magic 430 / BPE） |
 | `minicpm_ocr_vision_448.axmodel` | **535,663,750** | `1039487da423f4de` | **U16 vision**（448×448 → [1,256,1024]），Pulsar2 6.0 编译 |
+| `doclayout_bl_u16.axmodel` | 37,173,317 | 见 `sha256sum.txt` | **可选**：DocLayout-YOLO 版面检测 axmodel（U16，1024×1024，212 ms） |
 | `bin/axllm` | 2,496,048 | `5c0ac7775b9dab05` | AX650 aarch64 运行时（AXERA 官方包） |
 | `client_ocr.py` / `run.sh` | 1,874 / 291 | 见清单 | 示例客户端与启动脚本 |
 | `README.md` / `sha256sum.txt` | — | — | 模型卡与校验清单 |
