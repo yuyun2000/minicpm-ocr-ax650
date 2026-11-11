@@ -2,7 +2,7 @@
 
 > 目标板：AX650N DEMO（aarch64，Ubuntu 22.04，kernel 5.15.73，Python 3.10.12，8 核 / 3.8 GB DDR / CMM 4096 MB / 磁盘 24 GB）
 > 板端推理：`axllm serve`（OpenAI 兼容，端口 **18081**）｜网页测试台：Flask（端口 **8080**）
-> 本文数字来自 2026-11-10 在真实板上的实测记录；未验证处标 `TODO`。
+> 本文数字来自 2026-11-10 ~ 2026-11-11 在真实板上的实测记录（最终 U16 包）。
 
 ---
 
@@ -101,7 +101,11 @@ LLM init ok → OpenAI API Server starting on 0.0.0.0:18081
 > 上面这组是**首版 s8/p64 包**的实测日志（`max_token_len: 2047`、`prefill_token_num: 64`、
 > `prefill_max_token_num: 128`）。v2 包（prefill 桶 1152 / ctx 2048）应看到
 > **`prefill_max_token_num: 1152`**；`max_token_len` 的确切值以实际日志为准
-> （v2 完整启动日志待归档，`TODO`）。
+> 启动日志关键行（v2 + U16 包实测）：
+> `max_token_len : 2047`、`current prefill_max_token_num:1152`、
+> `VisionModule init ok: type=MiniCPMV46VL, tokens_per_block=256, embed_size=1024, out_dtype=fp32`、
+> `init post axmodel ok, remain_cmm(2130 MB)`、`LLM init ok`。
+> 版面模型（可选）：`LAYOUT_MODEL=/root/minicpm-ocr-v2/doclayout_bl_u16.axmodel`，`/api/health` 会返回 `layout_model`。
 
 ### 3.2 自检
 
@@ -195,9 +199,10 @@ AXLLM_URL=http://127.0.0.1:18081 PORT=8080 python3 board_app.py
 1. **整页模式**：`slicing.py` 复刻官方切片（全局缩略 + 网格切片），逐片 `letterbox_448` 后送 NPU
    （板端 vision encoder 固定 448×448 输入），再按阅读顺序拼接 + OTSL→Markdown。
 2. **空白片跳过**：非白像素比例 < 0.003 的切片直接跳过，避免模型对空白图退化重复。
-3. `MAX_SLICES_PER_PAGE`（默认 9）控制每页最多几片；ctx 2048 下整页 9 片会超上下文，实际场景建议按版面切块（一页 ≤7 片，`TODO` 待定量验证）。
+3. `MAX_SLICES_PER_PAGE`（默认 9）控制每页最多几片；整页模式默认跳过全局缩略片（8 片 ≈2016 image token）。
+   整页混合版面建议用 `layout` 模式（版面检测后逐区域识别），避免网格切片把表格/多栏切开。
 4. Flask 用 `static_folder=web, static_url_path=""`；前端全部走同源相对路径 `/api/*`，不需要 CORS。
-5. 前端 `slice_times` 按毫秒解释，而 `board_app.py` 目前填的是秒——已知不一致，见仓库根 `TODO`。
+5. 前端 `slice_times` 与 `board_app.py` 均已统一为**毫秒**（`metrics.slice_time_unit="ms"`）。
 
 ---
 
@@ -237,12 +242,15 @@ ssh root@<board> 'cd /root/minicpm-ocr-v2 && \
 
 ---
 
-## 8. 待补充（TODO）
+## 8. 后续可继续优化（非阻塞）
 
-1. v2 包（prefill=1152 / ctx=2048）的完整启动日志与 `max_token_len` / `prefill_max_token_num` 实测行。
-2. U16 vision 包的实际体积、加载后 `remain_cmm`、单块耗时。
-3. 板端一次性开机自启（systemd unit 或 `/etc/rc.local`）——本项目用 `service/start.sh` 手工拉起，未做开机自启。
-4. 板端 Flask 的 `MAX_CONTENT_LENGTH`（建议 20 MB）与并发上限未设。
+已完成：v2 启动日志（`max_token_len=2047` / `prefill_max_token_num=1152` / VisionModule 256 token）、
+U16 vision 体积 511 MB、加载后 `remain_cmm 2130 MB`、单块 615 ms。
+
+可选增强：
+1. 板端开机自启（systemd unit 或 `/etc/rc.local`）——当前用 `service/start.sh` 手工拉起；
+2. 板端 Flask 的 `MAX_CONTENT_LENGTH`（建议 20 MB）与上行并发上限；
+3. 版面/表格模式在更大页面上的并行化。
 
 
 ## 服务 API 的识别模式

@@ -9,7 +9,7 @@
 - **应用侧**：MiniCPM-V 式切片（9 片 / 2276 token，与官方 processor 逐片一致）+ OTSL→Markdown + 浏览器测试台
 
 > ⚠️ 这是**社区转换产物**，不是 AXERA / OpenBMB 官方发布。模型仓：
-> 🤗 [`yunyu1258/minicpm-ocr-1.0-ax650`](https://huggingface.co/yunyu1258/minicpm-ocr-1.0-ax650)（2.5 GB，U16 vision 版）
+> 🤗 [`yunyu1258/minicpm-ocr-1.0-ax650`](https://huggingface.co/yunyu1258/minicpm-ocr-1.0-ax650)（**37 文件 / 2730 MB**：U16 vision + 可选 U16 版面模型 + sha256 清单，Apache-2.0 / 内含 BSD-3 NOTICE）
 
 ---
 
@@ -182,18 +182,24 @@ LLM 用 Pulsar2 8.0（`llm_build2`）；**vision 必须 U16 且必须用 Pulsar2
 
 ---
 
-## 待补充（TODO）
+## 交付状态
 
-- [x] U16 全量 vision axmodel：511 MB / 615 ms / cosine **0.995322**，已部署板端并上线 HF
-- [x] HF 模型仓：`yunyu1258/minicpm-ocr-1.0-ax650`（35 文件 / 2693 MB，含 U16 vision）
-- [x] v2 包（prefill 1152 / ctx 2048）：板端日志 `current prefill_max_token_num:1152`、`max_token_len:2047`、`VisionModule tokens_per_block=256`
-- [x] 板端 vs HF 参考：单块表格 OCR 字符相似度 **1.0**、数字 **12/12**（`scripts/compare_ocr_output.py`）
-- [x] OmniDocBench 12 页评测：page/oracle 两种模式（见 [docs/omnidocbench.md](docs/omnidocbench.md)）
-- [ ] `sha256sum.txt`（模型仓校验清单）
-- [ ] `FLOAT_MATMUL_USE_CONV_EU=1` 对构建的影响（官方脚本有，本项目未记录）
-- [ ] 板端开机自启（systemd）、Flask 上传体积上限
-- [ ] OCR 并发 >1 的排队策略（axllm max concurrency=1）
-- [ ] LICENSE / NOTICE（含 AXERA axllm BSD-3 与 OpenBMB Apache-2.0 声明）
+| 项 | 状态 |
+|---|---|
+| U16 vision axmodel | ✅ 511 MB / 615 ms / cosine **0.995322**，已部署板端并上线 HF |
+| 表格模式（auto/table/wide） | ✅ 修复表格被整页切片切碎乱序的问题（[docs/table-mode.md](docs/table-mode.md)） |
+| 版面模式（DocLayout-YOLO U16） | ✅ 35 MB / 212 ms，boxes cos 0.999999 / logits 0.99995，板端已上线（[docs/layout-mode.md](docs/layout-mode.md)） |
+| 板端服务 + M5Stack 网页 | ✅ `auto/table/layout/page/wide/region` 六种模式，`/api/health` 返回 `layout_model` |
+| 模型仓 | ✅ [`yunyu1258/minicpm-ocr-1.0-ax650`](https://huggingface.co/yunyu1258/minicpm-ocr-1.0-ax650)：37 文件 / 2730 MB，含 `sha256sum.txt` |
+| 端到端精度 | ✅ 单块表格 字符相似度 1.0、数字 12/12；OmniDocBench 12 页 page/oracle 两口径（[docs/omnidocbench.md](docs/omnidocbench.md)） |
+| 性能/并发 | ✅ 图像块 12.1–21.9 s（decode 11.6 tok/s）、整页 page 147 s、版面 19.8 s（PPT 页）；并发数据见 [docs/performance.md](docs/performance.md) |
+| LICENSE / NOTICE | ✅ Apache-2.0（代码）+ NOTICE 列明 axllm BSD-3 / MiniCPM-OCR / DocLayout-YOLO |
+
+可选增强（未做，不影响交付）：
+- 板端开机自启（systemd）与 Flask 上传体积上限；
+- OCR 并发 >1 的排队/批处理策略（axllm 最大并发 1）；
+- `FLOAT_MATMUL_USE_CONV_EU=1` 与官方 llm_build 的逐位对齐（现有包实测正常，未做差异消融）；
+- OmniDocBench 全量 1651 页批量评测（当前 12 页抽样）。
 
 ---
 

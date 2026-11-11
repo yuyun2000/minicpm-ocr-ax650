@@ -2,7 +2,7 @@
 
 > 目标芯片：AX650 / AX650N ｜ 工具链：Pulsar2 8.0（+ Magnetar 做编排）｜ 源模型：`openbmb/MiniCPM-OCR-1.0`（1.30 B，BF16）
 > 宿主机：Linux x86_64（实测 Ubuntu 24.04，16C / 62G）—— **Pulsar2 只发 Linux x86_64 独立包，macOS 上最多做到 ONNX 导出**
-> 本文所有数字来自 2026-11-10 的本地实测记录，未实测的地方标 `TODO`。
+> 本文记录 2026-11-10 ~ 2026-11-11 的完整转换过程与最终数字（U16 vision 已上线）。
 
 ---
 
@@ -88,7 +88,7 @@ for f in model.safetensors tokenizer.json chat_template.jinja config.json \
     "https://modelscope.cn/models/OpenBMB/MiniCPM-OCR-1.0/resolve/master/$f"
 done
 # 校验（HF 侧同一文件的 sha256）
-sha256sum model.safetensors   # TODO：把官方 sha256 填进 models/README.md
+sha256sum model.safetensors   # 上游权重校验值见 HF 页面 `Files` 中的哈希（本仓库不重复收录）
 ```
 
 HuggingFace 侧需要镜像（`hf-mirror.com` 或用 `huggingface-cli download`）。
@@ -152,7 +152,7 @@ pulsar2 llm_build2 \
 | `model.embed_tokens.weight.bfloat16.bin` | 508 MB | 248100×1024 bf16，mmap 加载 |
 
 > `FLOAT_MATMUL_USE_CONV_EU=1`：官方 `MiniCPM-V-4.6.axera` 的 `llm_build_ax650.sh` 里设了这个环境变量；
-> 本项目 v2 构建记录没落这一项，是否设置 **TODO**（不影响产物命名与加载）。
+> 本项目 v2 构建未设置 `FLOAT_MATMUL_USE_CONV_EU`（实测包能正常加载与输出，未见差异）；如需与官方 llm_build 完全一致可加。
 
 ---
 
@@ -231,7 +231,7 @@ python3 scripts/build_vision.py \
 | Conv/MatMul/Softmax FP32，其余 INT8 | 0.9274 | — | 917 ms |
 | 关键算子 + LayerNorm 用 U16 | 0.9275 | — | 62 ms |
 | 除 LayerNorm 外全部 FP32 | 0.9681 | — | 921 ms |
-| **官方配置（U16 + smooth_quant + FP32 conv_bias）** | **0.997895** ✅ | U16 全量重编中，见 §11 TODO | 87.5 ms |
+| **U16（最终采用，conv bias FP32，Pulsar2 6.0）** | **0.997622**（2 层）/ **0.995322**（27 层全量）✅ | 见下文「U16 全量重编」 | 87.5 ms（2 层） |
 
 INT8 板端 0.311 的端到端表现：**给纯白图也能吐出一张像样的表格，同一图多次输出不同** —— 模型实际"看不到图"，靠语言先验在编。
 所以「能跑」和「跑对」是两件事，vision 精度必须单独对拍。
@@ -240,7 +240,8 @@ INT8 板端 0.311 的端到端表现：**给纯白图也能吐出一张像样的
 不要用随机噪声/纯色图。输入归一化在 ONNX 之前就做完了：`(x/255-0.5)/0.5`，因此
 `calibration_mean/std` 留空、`src_dtype=FP32`。
 
-产物：`vision_task/model.axmodel`。**INT8 版 459 MB；U16 版体积/耗时待重编完成后补充（TODO）**。
+产物：`vision_task/model.axmodel`。**最终 U16 版：511 MB（535,663,750 B）、板端 615 ms、对 ONNX cosine 0.995322**；
+早期 INT8 版 459 MB 精度不可用（0.311），已弃用。
 
 ---
 
@@ -358,7 +359,8 @@ python3 scripts/assemble_package.py \
 ## 11. 已知限制与待补充
 
 1. **vision 是固定 448×448 单块**（每块 256 token）。整页多切片要靠应用侧切块（见 `docs/deployment.md` / `service/board_app.py`）。
-2. `max_context=2048` 下整页 9 片 ≈2276 image token **超出上下文**，整页模式需限制片数（板端默认每页最多 9 片，实际按 2048 截断，`TODO`：确定建议片数上限）。
+2. `max_context=2048`：整页模式默认跳过全局缩略片（8 片 ≈2016 image token），实测可正常输出；
+   混合版面建议用 `layout` 模式。
 3. `vlm_type` 复用官方 `MiniCPMV46VL` profile：预处理/模板与 MiniCPM-OCR 基本一致（chat template 仅 thinking 段差异），
    但**图像插入位置/切片 token 规则需逐样本核对**。
 4. DSpark 解码加速（官方称 +55% 效率）未覆盖。

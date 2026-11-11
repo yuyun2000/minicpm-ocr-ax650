@@ -1,7 +1,7 @@
 # 精度验证：vision 编码器、切片、tokenizer、端到端
 
 > 本文回答一个问题：**它跑出来的结果到底是不是对的**。
-> 所有数字来自 2026-11-10 的板端与主机实测；未定稿的标 `TODO`。
+> 所有数字来自 2026-11-10 ~ 2026-11-11 的板端与主机实测，均为最终版（U16 vision 已上线）。
 > 板卡：AX650N（Ubuntu 22.04 aarch64，kernel 5.15.73，运行时 `/soc/lib/libax_engine.so` V1.45.0_P39，2024-09）
 
 ---
@@ -13,13 +13,13 @@
 | vision ONNX 导出（塔+merge+merger）vs torch | cosine **0.9999999992**，max_abs 2.46e-03 | ✅ |
 | vision axmodel（**INT8**）vs ONNX 参考 | cosine **0.311** | ❌ 不可用 |
 | vision axmodel（**官方 U16 配置**，2 层探针）vs torch | cosine **0.997895** | ✅ |
-| vision axmodel（U16，27 层全量）板端对拍 | **TODO**（重编进行中） | ⏳ |
+| vision axmodel（U16，27 层全量 + merger，Pulsar2 6.0）板端对拍 | cosine **0.995322**（511 MB / 615 ms） | ✅ |
 | tokenizer（C++ 实现 vs HF） | 文本/图像/视频 3 类用例 **5/5 PASS** | ✅ |
 | 切片数量 / 每片尺寸 / patch 网格 / image token | 与官方 processor **逐片完全一致**（4 张测试图 × 4 种模式） | ✅ |
 | 几何函数随机对拍（`ensure_divide` 等） | 2000/6000/1440/3000/5 组，**0 不一致** | ✅ |
 | 板端文本语义 | "1+1" → "2"；"一句话解释 OCR" → 通顺中文 | ✅ |
 | 板端整块图像 OCR | 448×448 表格块 → 正确 OTSL（6 行 × 8 列，内容与图中表格一致） | ✅（人工核对） |
-| 端到端字符相似度 / 表格 F1（板端 vs HF CPU 基线） | **TODO**（`scripts/compare_ocr_output.py` 已就绪，未跑完整集） | ⏳ |
+| 端到端（单块表格，板端 vs HF CPU 基线） | 字符相似度 **1.0**、数字 **12/12** 一致 | ✅ |
 
 一句话：**视觉编码器必须用 U16 激活**，INT8 会让 27 层视觉塔的 cosine 从 0.99 掉到 0.31，
 端到端表现为「给纯白图也能编出一张表格」。切片与 tokenizer 侧已对齐官方，不是误差来源。
@@ -89,7 +89,7 @@ b=np.load('vision_ref.npy').astype(np.float64).ravel(); print(a@b/(np.linalg.nor
 | 2 层探针 | 除 LayerNorm 外全部 FP32 | 0.9681 | 921 ms |
 | **2 层探针** | **官方配置：U16 + smooth_quant + FP32 conv_bias + disable_auto_refine_scale** | **0.997895** ✅ | 87.5 ms |
 | 27 层生产模型 | INT8，2 张校准 + MinMax | **0.311** ❌ | 520 ms |
-| 27 层生产模型 | U16，64 张真实切片校准 | **TODO**（重编中） | — |
+| **27 层生产模型** | **U16，16 张真实切片校准，Pulsar2 6.0** | **0.995322** ✅ | **615 ms**（511 MB） |
 
 误差是**逐层累积**的：2 层就 0.86，27 层连乘掉到 0.31。
 
@@ -201,7 +201,7 @@ vision 转换资产，其中 `pulsar2_configs/config_vision_448_npu3.json` 写�
 | 官方 MiniCPM-V-4.6 包（对照） | 描述红矩形 + 白字 HELLO AX650 正确，2.87 s |
 
 量化方法（板端 vs HF CPU 基线）已经写好：`scripts/compare_ocr_output.py`（字符级相似度 +
-表格单元格 P/R/F1 + 数字准确率）。**完整测试集的分数据未采集（TODO）**。
+表格单元格 P/R/F1 + 数字准确率）。本仓库验证的是单块与 12 页抽样；**OmniDocBench 全量 1651 页未跑**（耗时约 1~2 天/单板，后续可批量跑）。
 
 ---
 
@@ -217,12 +217,19 @@ vision 转换资产，其中 `pulsar2_configs/config_vision_448_npu3.json` 写�
 
 ---
 
-## 10. 待补充（TODO）
+## 10. 验证状态与后续可做的消融
 
-1. **U16 全量 27 层 vision axmodel 的板端 cosine / 体积 / 单块耗时**（2 层探针 0.9979 已达标，全量重编结果未定稿）。
-2. 板端 vs HF CPU 基线的 `compare_ocr_output.py` 指标（字符相似度、表格 cell F1、数字准确率）——需要固定测试图集。
-3. 整页模式（多切片拼接）的端到端质量评估；ctx 2048 下最多几片仍能保持结构。
-4. 官方 U16 配置里 `precision_analysis_method=EndToEnd` 是否必须、关掉后精度是否变化（未做消融）。
+已完成：
+1. ✅ U16 全量 27 层 vision axmodel：511 MB、615 ms、对 ONNX cosine **0.995322**（Pulsar2 **6.0** 编译；7.0/8.0 会崩）。
+2. ✅ 端到端单块对比：字符相似度 1.0、数字 12/12。
+3. ✅ 整页/版面模式的端到端质量：OmniDocBench 12 页 page/oracle 两种口径（见 `omnidocbench.md`）；
+   版面模式实测 PPT 页 19.8 s、整页表格页 53.8 s。
+4. ✅ 版面模型（DocLayout-YOLO）：U16 axmodel 35 MB / 212 ms，boxes cos 0.999999、logits 0.99995（见 `layout-mode.md`）。
+
+仍可做的消融（不影响当前交付）：
+- 官方 U16 配置里 `precision_analysis_method=EndToEnd` / `smooth_quant` 是否必需（我们最终版已去掉，精度 0.9953 达标）；
+- 更大表格按行切分的合并策略在密集表格上的边界情况；
+- 版面阅读顺序在复杂多栏页上的后处理优化。
 
 
 ## 最终精度数据（2026-11-11，板端 ax_run_model / 服务实测）

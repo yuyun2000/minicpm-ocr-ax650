@@ -1,0 +1,25 @@
+minicpm-ocr-ax650
+Copyright 2026 the minicpm-ocr-ax650 contributors
+
+本仓库包含/引用以下第三方作品，其许可证与使用条款如下：
+
+1. MiniCPM-OCR 1.0（底座模型）
+   - 来源：https://huggingface.co/openbmb/MiniCPM-OCR-1.0
+   - 许可证：Apache-2.0
+   - 本仓库只提供转换脚本与转换产物，模型权重版权归 OpenBMB 所有；使用请遵守其模型许可与使用条款。
+
+2. axllm 运行时（bin/axllm，随模型包分发）
+   - 来源：AXERA-TECH 官方发布包（https://huggingface.co/AXERA-TECH/MiniCPM-V-4.6）
+   - 上游：https://github.com/AXERA-TECH/ax-llm
+   - 许可证：BSD-3-Clause
+   - 再分发时请保留 AXERA 的版权声明与许可证文本。
+
+3. DocLayout-YOLO（版面检测模型）
+   - 来源：https://huggingface.co/wybxc/DocLayout-YOLO-DocStructBench-onnx
+   - 上游：https://github.com/opendatalab/DocLayout-YOLO （模型权重许可证见上游，Apache-2.0）
+   - 本仓库提供的是 ONNX → AXMODEL 的转换产物与后处理代码。
+
+4. 工具链
+   - Pulsar2（AXERA）：二进制工具，不随本仓库分发
+   - Magnetar（AXERA）：https://github.com/AXERA-TECH/Magnetar
+   - transformers / onnx / onnxruntime：各自开源许可证
