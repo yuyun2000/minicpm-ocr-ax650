@@ -247,7 +247,7 @@ ssh root@<board> 'cd /root/minicpm-ocr-v2 && \
 | 设备 | 芯片 / 板型 | CMM | 运行时 | 网页端口 | 备注 |
 |---|---|---|---|---|---|
 | 192.168.10.144 | AX8850（AX650N 板型）/ M5Stack 8G | 4096 MB | libax_engine V1.45.0 (2024-09) | 8080 | 首发部署板 |
-| 192.168.10.105 | **AX8850C**（AX650C 板型）/ `AX650N_M5stack_8G` | **6144 MB** | libax_engine V3.6.4 (2025-08) | **8088** | 预装 M5Stack ModuleLLM 占用 80/8000/8080；同包直接可跑 |
+| 192.168.10.105 | **AX8850C**（AX650C 板型）/ `AX650N_M5stack_8G` | **6144 MB** | libax_engine V3.6.4 (2025-08) | **8088** | 预装 M5Stack ModuleLLM 占用 80/8000/8080；同包直接可跑；**systemd 自启**（ocr-axllm / ocr-web） |
 
 两台设备均验证：vision U16 cosine 0.9953、表格/版面模式正常、流式 SSE 正常。
 105 的部署记录见 [deploy-105.md](deploy-105.md)。
