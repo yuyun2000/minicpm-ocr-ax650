@@ -160,3 +160,24 @@ CPU 慢的根因不是视觉塔、也不是 1.3B 参数，而是 18 层 GatedDel
 3. 整页 9 块真实串行耗时（当前为推算）。
 4. 并发 2/4 请求下的 P50/P95 延迟与吞吐。
 5. 中文表格 / 密集小字页面的 token 长度分布（决定 `max_tokens` 默认值）。
+
+
+## 最终实测（2026-11-11，U16 vision 包）
+
+板端：AX650N（8 核 aarch64 / 3.8 GB DDR / CMM 4096 MB），axllm 18081，`max_token_len=2047`，
+`current prefill_max_token_num=1152`，`VisionModule init ok: tokens_per_block=256, out_dtype=fp32`。
+
+| 项 | 实测 |
+|---|---|
+| vision axmodel 体积 / 单块 448×448 耗时 | 511 MB / **615 ms**（ax_run_model，单独测） |
+| 视觉对拍（对 ONNX 参考） | cosine **0.995322** |
+| 单块 504×392 表格 OCR（277 prompt → 119 token） | **12.1 s**，decode ≈ **9.8–11.8 tok/s** |
+| 单块 448×448 表格 OCR（277 → 237 token） | **21.9 s**，decode **11.6 tok/s**（日志 11.10–11.76） |
+| 整页切片（9 片，跳过全局缩略片） | **147 s/页**，1515 completion token |
+| TTFT（含视觉编码） | 2.09–2.15 s |
+| 文本 "1+1" / "一句话解释 OCR" | 0.6 s / 1.9 s（≈15.3 tok/s） |
+| CMM（加载完成后） | 剩余 **2130 MB**（`/proc/ax_proc/mem_cmm_info` 当前占用 ≈2.5 GB） |
+| 并发（文本，levels 1/2/4） | 0.55 / 0.56 / 0.75 req/s；均值 1.82 / 3.13 / 3.93 s（P95 5.32 s） |
+| 并发（OCR 图片块，levels 1/2/4） | 0.082 / 0.164 / 0.164 req/s；单块 12.2 s（axllm 单并发，排队） |
+
+> 结论：瓶颈在 **LLM decode（≈11.6 tok/s）**，vision 只占单块总量约 5%；整页耗时 = 片数 ×（视觉 0.6 s + LLM 解码）。
