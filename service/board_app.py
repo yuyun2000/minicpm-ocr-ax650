@@ -68,6 +68,164 @@ def letterbox_448(im: Image.Image) -> tuple[Image.Image, float]:
     return canvas, (nw * nh) / float(SCALE_RESOLUTION ** 2)
 
 
+# ---------- 版面检测（DocLayout-YOLO, 1024x1024, 输出 raw [1,14,21504]）----------
+LAYOUT_MODEL = os.environ.get("LAYOUT_MODEL", "")
+LAYOUT_SIZE = 1024
+LAYOUT_NAMES = ["title", "plain text", "abandon", "figure", "figure_caption",
+                "table", "table_caption", "table_footnote", "isolate_formula", "formula_caption"]
+AX_RUN_MODEL = os.environ.get("AX_RUN_MODEL", "/opt/bin/ax_run_model")
+
+
+def layout_detect(img: Image.Image, conf_thr: float = 0.35, min_area_ratio: float = 0.002,
+                  nms_iou: float = 0.5) -> list[dict]:
+    """调用板端 ax_run_model 跑 DocLayout-YOLO（双输出：boxes + score logits），
+    返回 [{label, conf, box(原图坐标)}]，按阅读顺序排序。"""
+    if not os.path.exists(LAYOUT_MODEL):
+        raise RuntimeError(f"版面模型不存在: {LAYOUT_MODEL}")
+    w, h = img.size
+    r = min(LAYOUT_SIZE / w, LAYOUT_SIZE / h)
+    nw, nh = max(1, int(round(w * r))), max(1, int(round(h * r)))
+    px, py = (LAYOUT_SIZE - nw) // 2, (LAYOUT_SIZE - nh) // 2
+    canvas = Image.new("RGB", (LAYOUT_SIZE, LAYOUT_SIZE), (114, 114, 114))
+    canvas.paste(img.resize((nw, nh), Image.BILINEAR), (px, py))
+    arr = (np.asarray(canvas, dtype=np.float32) / 255.0).transpose(2, 0, 1)[None]
+
+    import subprocess
+    import tempfile
+    with tempfile.TemporaryDirectory(prefix="layout_") as td:
+        inp = os.path.join(td, "inputs", "run0")
+        outd = os.path.join(td, "out")
+        os.makedirs(inp); os.makedirs(outd)
+        arr.tofile(os.path.join(inp, "images.bin"))
+        with open(os.path.join(td, "list.txt"), "w") as f:
+            f.write("run0\n")
+        subprocess.run([AX_RUN_MODEL, "-m", LAYOUT_MODEL, "-i", os.path.join(td, "inputs"),
+                        "-o", outd, "-l", os.path.join(td, "list.txt")],
+                       check=True, capture_output=True, timeout=300)
+        files = os.listdir(os.path.join(outd, "run0"))
+        def pick(keyword):
+            cand = [f for f in files if keyword in f]
+            return os.path.join(outd, "run0", cand[0]) if cand else None
+        box_file = pick("Mul_3") or pick("boxes")
+        logit_file = pick("Split_1") or pick("logits")
+        if not box_file or not logit_file:
+            raise RuntimeError(f"版面模型输出不完整: {files}")
+        boxes = np.fromfile(box_file, dtype=np.float32)
+        logits = np.fromfile(logit_file, dtype=np.float32)
+
+    n_anchor = boxes.size // 4
+    pb = boxes.reshape(4, n_anchor).T
+    lg = logits.reshape(10, n_anchor).T
+    with np.errstate(over="ignore"):
+        sc = 1.0 / (1.0 + np.exp(-lg.astype(np.float64)))
+    conf = sc.max(axis=1)
+    cls = sc.argmax(axis=1)
+
+    min_area = min_area_ratio * w * h
+    dets = []
+    for i in np.where(conf >= conf_thr)[0]:
+        x1, y1, x2, y2 = [float(v) for v in pb[i]]
+        x1 = (x1 - px) / r; x2 = (x2 - px) / r
+        y1 = (y1 - py) / r; y2 = (y2 - py) / r
+        x1, x2 = max(0.0, min(x1, w)), max(0.0, min(x2, w))
+        y1, y2 = max(0.0, min(y1, h)), max(0.0, min(y2, h))
+        bw, bh = x2 - x1, y2 - y1
+        if bw < 12 or bh < 12 or bw * bh < min_area:
+            continue
+        label = LAYOUT_NAMES[int(cls[i])] if int(cls[i]) < len(LAYOUT_NAMES) else str(int(cls[i]))
+        dets.append({"label": label, "conf": float(conf[i]),
+                     "box": [x1, y1, x2, y2]})
+
+    # 同类别 NMS
+    def iou(a, b):
+        ix = max(0.0, min(a[2], b[2]) - max(a[0], b[0]))
+        iy = max(0.0, min(a[3], b[3]) - max(a[1], b[1]))
+        inter = ix * iy
+        ua = (a[2]-a[0])*(a[3]-a[1]) + (b[2]-b[0])*(b[3]-b[1]) - inter
+        return inter / ua if ua > 0 else 0.0
+
+    dets.sort(key=lambda d: -d["conf"])
+    kept = []
+    for d in dets:
+        if all(iou(d["box"], k["box"]) < nms_iou or d["label"] != k["label"] for k in kept):
+            kept.append(d)
+
+    for d in kept:
+        d["conf"] = round(d["conf"], 4)
+        d["box"] = [round(v, 1) for v in d["box"]]
+
+    # 阅读顺序：先按 y 聚类成行（垂直重叠 > 40%），行内按 x
+    kept.sort(key=lambda d: (d["box"][1], d["box"][0]))
+    ordered, row = [], []
+    for d in kept:
+        if not row:
+            row = [d]; continue
+        ry1 = min(x["box"][1] for x in row); ry2 = max(x["box"][3] for x in row)
+        y1, y2 = d["box"][1], d["box"][3]
+        inter = max(0.0, min(ry2, y2) - max(ry1, y1))
+        if inter > 0.4 * max(1e-6, min(ry2 - ry1, y2 - y1)):
+            row.append(d)
+        else:
+            ordered.extend(sorted(row, key=lambda x: x["box"][0])); row = [d]
+    if row:
+        ordered.extend(sorted(row, key=lambda x: x["box"][0]))
+    return ordered
+
+
+LAYOUT_PROMPT = {
+    "table": "Table Recognition:",
+    "isolate_formula": "Formula Recognition:",
+    "formula_caption": "Text Recognition:",
+}
+
+
+def ocr_layout(img: Image.Image, max_tokens: int) -> dict:
+    """版面模式：DocLayout-YOLO 检测区域 → 按类型逐区域识别 → 按阅读顺序组装 markdown。
+
+    单表格裁片场景：若只检出一个 table 区域且覆盖全图 >35%，直接整图按表格识别
+    （避免检测框把左右列的表格内容裁掉）。
+    """
+    dets = layout_detect(img)
+    w, h = img.size
+    page_area = float(w * h)
+    tables = [d for d in dets if d["label"] == "table"]
+    if len(dets) == 1 and tables:
+        x1, y1, x2, y2 = tables[0]["box"]
+        if (x2 - x1) * (y2 - y1) > 0.35 * page_area:
+            out = ocr_table(img, max_tokens)
+            out["parts"] = [{"label": "table", "conf": round(tables[0]["conf"], 4),
+                             "box": [0, 0, w, h],
+                             "elapsed_s": sum(p.get("elapsed_s") or 0 for p in out["parts"]),
+                             "note": "single-table-page: whole image"}]
+            return out
+    results, parts = [], []
+    for d in dets:
+        label = d["label"]
+        if label in ("abandon", "figure"):
+            continue
+        x1, y1, x2, y2 = d["box"]
+        pad = 4
+        crop = img.crop((int(max(0, x1 - pad)), int(max(0, y1 - pad)),
+                         int(min(img.width, x2 + pad)), int(min(img.height, y2 + pad))))
+        if crop.width < 8 or crop.height < 8:
+            continue
+        prompt = LAYOUT_PROMPT.get(label, "Text Recognition:")
+        block, _ = letterbox_448(crop)
+        r = call_axllm(block, prompt, max_tokens)
+        content = r["content"]
+        parts.append({"label": label, "conf": d["conf"], "box": d["box"],
+                      "elapsed_s": r["elapsed_s"], "tokens": r.get("completion_tokens")})
+        if label == "table":
+            try:
+                md = otsl_to_markdown(content) or content
+            except Exception:
+                md = content
+        else:
+            md = content
+        results.append(md)
+    return {"parts": parts, "markdown": "\n\n".join(results)}
+
+
 # ---------- 表格模式：整表识别 / 按行切分后合并 OTSL ----------
 TABLE_PROMPT = "Table Recognition:"
 
@@ -253,7 +411,8 @@ def call_axllm(image: Image.Image | None, prompt: str, max_tokens: int) -> dict:
 def health():
     try:
         with urllib.request.urlopen(f"{AXLLM}/v1/models", timeout=10) as r:
-            return jsonify({"ok": True, "board": json.load(r)})
+            return jsonify({"ok": True, "board": json.load(r),
+                            "layout_model": os.path.basename(LAYOUT_MODEL) if os.path.exists(LAYOUT_MODEL) else None})
     except Exception as exc:  # noqa: BLE001
         return jsonify({"ok": False, "error": str(exc)})
 
@@ -270,14 +429,29 @@ def api_ocr():
     t0 = time.time()
     if mode == "auto":
         w, h = img.size
-        if looks_like_table(img):
+        if looks_like_table(img) and not (h >= 1.2 * w and max(w, h) >= 1800):
             mode = "table"
+        elif os.path.exists(LAYOUT_MODEL) and ((h >= 1.2 * w and max(w, h) >= 1200) or max(w, h) >= 2200):
+            mode = "layout"
         elif (h >= 1.2 * w and max(w, h) >= 1200) or max(w, h) >= 2200:
             mode = "page"
         elif w >= 2.5 * h and w >= 1200:
             mode = "wide"
         else:
             mode = "region"
+    if mode == "layout" and os.path.exists(LAYOUT_MODEL):
+        try:
+            out = ocr_layout(img, max_tokens)
+            elapsed = round(time.time() - t0, 3)
+            comp = sum(p.get("tokens") or 0 for p in out["parts"])
+            metrics = {"mode": "layout", "slices": len(out["parts"]), "parts": out["parts"],
+                       "elapsed_s": elapsed, "completion_tokens": comp,
+                       "decode_tok_s": round(comp / elapsed, 2) if comp and elapsed else None,
+                       "ttft_ms": int((out["parts"][0]["elapsed_s"]) * 1000) if out["parts"] else None}
+            return jsonify({"content": out["markdown"], "markdown": out["markdown"],
+                            "metrics": metrics, "error": None})
+        except Exception as exc:  # noqa: BLE001
+            return jsonify({"error": f"{type(exc).__name__}: {exc}"})
     if mode == "table":
         try:
             out = ocr_table(img, max_tokens)

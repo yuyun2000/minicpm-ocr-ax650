@@ -21,10 +21,12 @@
 | `table` | **整表识别**：≤2048px 一次送；更大的表只按行切、按行合并 → 一个 Markdown 表格 | 表格截图/裁剪的表格区域 |
 | `page` | 官方 9 片切片（默认跳过全局缩略片），逐片识别后拼接 | 整页文档（无版面模型，页内表格仍可能被切断） |
 | `wide` | 宽条文字按列分块后顺序拼接 | 长条文本截图 |
+| `layout` | **DocLayout-YOLO 版面检测**（U16 axmodel，212 ms）→ 按区域类型识别 → 阅读顺序拼接 | 整页文档（含混合版面） |
 | `region` | 整图作单块识别 | 已裁好的单个区域 |
 
 > 表格图请用 `auto`/`table`：用 `page` 会把表格沿列切成多条，输出乱序（已复现并记录在
-> [docs/table-mode.md](docs/table-mode.md)）。整页文档里的表格仍建议先裁出表格区域再用表格模式。
+> [docs/table-mode.md](docs/table-mode.md)）。整页混合版面用 `layout`（需版面 axmodel，见
+> [docs/layout-mode.md](docs/layout-mode.md)）：DocLayout-YOLO 转 AX650 的完整步骤、精度对拍与踩坑都在里面。
 
 ## 实测数字（最终版，AX650N 真板，U16 vision）
 

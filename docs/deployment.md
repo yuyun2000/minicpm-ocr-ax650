@@ -251,6 +251,8 @@ ssh root@<board> 'cd /root/minicpm-ocr-v2 && \
 
 - `mode=auto`（默认）：表格线检测 → 表格模式；竖长大图 → 整页切片；宽条 → 列分块；其余 → 单区域；
 - `mode=table`：整表识别（大表按行切分后合并）→ 一个 Markdown 表格；
+- `mode=layout`：DocLayout-YOLO 版面检测（U16 axmodel，212 ms）→ 按区域类型识别 → 阅读顺序拼接；
+  需要 `LAYOUT_MODEL=/path/doclayout_bl_u16.axmodel` 环境变量，未设置时自动回退；
 - `mode=page`：官方 9 片切片逐片识别后拼接；
 - `mode=wide`：宽条文字按列分块后顺序拼接；
 - `mode=region`：整图单块识别。
