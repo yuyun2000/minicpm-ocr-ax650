@@ -1,3 +1,5 @@
+> ⚠️ 本文是 **2026-11-10 的部署过程记录**（INT8 vision 时代）。最终状态与 U16 vision 数字见 [final-summary.md](final-summary.md) 与 [performance.md](performance.md)。
+
 # MiniCPM-OCR 1.0 → AX650 转换 · 部署 · 性能报告
 
 > 2026-11-10｜源模型 `openbmb/MiniCPM-OCR-1.0`（1.30 B，BF16）｜目标 AX650（AX650N DEMO 板，Ubuntu 22.04 aarch64，8 核 / 3.8 GB DDR / CMM 4096 MB）

@@ -1,7 +1,9 @@
 # 性能：AX650 板端实测
 
 > 板卡：AX650N DEMO（aarch64，Ubuntu 22.04，kernel 5.15.73，8 核 / 3.8 GB DDR / CMM 4096 MB）
-> 模型：MiniCPM-OCR 1.0 → AX650（24 层 INT8 + BF16 post + U16 vision 目标配置），axllm 18081
+> ⚠️ **本节为历史数据**（首版 INT8 vision 包，2026-11-10）。最终 U16 vision 包的数字见文末「最终实测」一节。
+>
+> 模型：MiniCPM-OCR 1.0 → AX650（24 层 INT8 + BF16 post + 首版 INT8 vision），axllm 18081
 > 数据来自 2026-11-10 板端实测；**汇总量与推算量都标注了来源**，没有实测的地方标 `TODO`。
 
 ---
