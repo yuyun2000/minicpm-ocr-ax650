@@ -28,6 +28,25 @@
 > [docs/table-mode.md](docs/table-mode.md)）。整页混合版面用 `layout`（需版面 axmodel，见
 > [docs/layout-mode.md](docs/layout-mode.md)）：DocLayout-YOLO 转 AX650 的完整步骤、精度对拍与踩坑都在里面。
 
+## 流式输出（逐字显示）
+
+axllm 支持 OpenAI 兼容 `stream: true`（SSE），板端服务提供两个流式端点，网页默认开启：
+
+- `POST /api/ocr_stream`（multipart）：`meta`（模式/块数）→ 每块 `part_start` → `delta*` → `part_done` → `done`（含 markdown/metrics）
+- `POST /api/chat_stream`（json）：`meta` → `delta*` → `done`
+
+| 场景 | 首字时间（TTFT） | 总耗时 |
+|---|---|---|
+| 表格示例（table 模式，233 token） | **2.1 s** | 21.7 s |
+| 文本对话（32 token） | **0.56 s** | 2.8 s |
+| 版面模式 PPT 页（6 区域） | 第 1 区 ~2.1 s，逐区出现 | 19.5 s |
+
+网页还带「快速示例」按钮（表格 / 文档页），点一下载入同源示例图并自动开始识别。
+流式失败会自动回退到非流式接口。细节：[docs/streaming.md](docs/streaming.md)
+
+![流式输出中](docs/images/streaming.png)
+![识别完成后的表格](docs/images/result-table.png)
+
 ## 实测数字（最终版，AX650N 真板，U16 vision）
 
 | 场景 | 结果 |

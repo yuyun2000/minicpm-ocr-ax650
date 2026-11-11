@@ -1201,3 +1201,26 @@ code {
     scroll-behavior: auto !important;
   }
 }
+
+
+/* ---------------- 流式输出（逐字显示） ---------------- */
+.stream-live { display: flex; flex-direction: column; gap: 8px; }
+.stream-live pre {
+  margin: 0;
+  padding: 12px 14px;
+  background: var(--m5-gray-50, #f5f7f6);
+  border: 1px solid var(--m5-border, #e5e5e5);
+  border-radius: var(--m5-radius-6, 6px);
+  font-family: var(--m5-font-mono, ui-monospace, SFMono-Regular, Menlo, monospace);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 420px;
+  overflow: auto;
+}
+.stream-live pre::after { content: "▍"; animation: m5-caret 1s steps(1) infinite; color: var(--m5-blue, #0282CB); }
+.stream-live pre.is-done::after { content: ""; animation: none; }
+.stream-live .stream-status { font-size: 12px; color: var(--m5-text-weak, #707070); }
+.stream-live .stream-part { margin-top: 4px; font-size: 12px; color: var(--m5-blue-text, #0064C2); }
+@keyframes m5-caret { 50% { opacity: 0; } }

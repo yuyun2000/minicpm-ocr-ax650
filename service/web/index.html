@@ -106,6 +106,19 @@
             </div>
 
             <div class="m5-field">
+              <span class="m5-label">快速示例</span>
+              <div class="check-row">
+                <button type="button" class="m5-btn m5-btn--ghost m5-btn--sm" id="sample-table" data-sample="samples/sample_table.png" data-name="示例表格.png">
+                  表格示例
+                </button>
+                <button type="button" class="m5-btn m5-btn--ghost m5-btn--sm" id="sample-doc" data-sample="samples/sample_doc.png" data-name="示例文档.png">
+                  文档页示例
+                </button>
+              </div>
+              <p class="m5-help">点一下载入示例并自动开始识别（流式输出会先显示文字，约 2 s 出首字）。</p>
+            </div>
+
+            <div class="m5-field">
               <label class="m5-label" for="task-select">任务类型</label>
               <select class="m5-select" id="task-select">
                 <option value="Text Recognition:">Text Recognition · 文本识别</option>
@@ -162,6 +175,13 @@
               <p class="m5-help">公式 / 长表格建议 2048；截断时先调大这个值。</p>
             </div>
 
+            <div class="m5-field">
+              <label class="m5-check m5-check--boxed">
+                <input type="checkbox" id="stream-ocr" checked>
+                流式输出（逐字显示，首字约 2 s 出现）
+              </label>
+            </div>
+
             <div class="form-actions">
               <button class="m5-btn m5-btn--primary" id="submit-btn" type="submit">开始识别</button>
               <button class="m5-btn m5-btn--ghost" id="cancel-btn" type="button" hidden>取消</button>
@@ -179,6 +199,10 @@
 
             <div class="m5-field">
               <label class="m5-label" for="chat-max-tokens">最大输出 tokens</label>
+              <label class="m5-check m5-check--boxed" style="margin-bottom:8px">
+                <input type="checkbox" id="stream-chat" checked>
+                流式输出
+              </label>
               <input class="m5-input" id="chat-max-tokens" type="number" inputmode="numeric"
                      min="16" max="4096" step="16" value="512">
             </div>
@@ -324,7 +348,7 @@
         <ul class="endpoint-list">
           <li>
             <code class="m5-mono">POST /api/ocr</code>
-            <span>multipart/form-data：<code>image</code> 文件、<code>prompt</code>、<code>mode</code>=auto|table|layout|page|wide|region、<code>max_tokens</code></span>
+            <span>multipart/form-data：<code>image</code> 文件、<code>prompt</code>、<code>mode</code>=auto|table|layout|page|wide|region；流式：<code>POST /api/ocr_stream</code>、<code>/api/chat_stream</code>（SSE）、<code>max_tokens</code></span>
           </li>
           <li>
             <code class="m5-mono">POST /api/chat</code>

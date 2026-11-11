@@ -20,7 +20,7 @@ import re
 import time
 import urllib.request
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, Response, jsonify, request, send_from_directory, stream_with_context
 from PIL import Image
 import numpy as np
 
@@ -406,6 +406,178 @@ def call_axllm(image: Image.Image | None, prompt: str, max_tokens: int) -> dict:
             "decode_tok_s": round(comp / dt, 2) if comp and dt else None}
 
 
+def call_axllm_stream(image: Image.Image | None, prompt: str, max_tokens: int):
+    """流式调用 axllm，逐段 yield ("delta", text)，最后 yield ("done", meta)。"""
+    content: list[dict] = [{"type": "text", "text": prompt}]
+    if image is not None:
+        buf = io.BytesIO()
+        image.save(buf, format="PNG")
+        b64 = base64.b64encode(buf.getvalue()).decode()
+        content.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{b64}"}})
+    payload = {"model": board_model(),
+               "messages": [{"role": "user", "content": content if image is not None else prompt}],
+               "max_tokens": max_tokens, "temperature": 0.0, "stream": True}
+    req = urllib.request.Request(f"{AXLLM}/v1/chat/completions", data=json.dumps(payload).encode(),
+                                 headers={"Content-Type": "application/json"})
+    t0 = time.time()
+    first = None
+    text_parts: list[str] = []
+    usage = {}
+    with urllib.request.urlopen(req, timeout=1800) as resp:
+        for raw in resp:
+            line = raw.decode("utf-8", "replace").strip()
+            if not line.startswith("data:"):
+                continue
+            data = line[5:].strip()
+            if data == "[DONE]":
+                break
+            try:
+                d = json.loads(data)
+            except json.JSONDecodeError:
+                continue
+            if d.get("usage"):
+                usage = d["usage"]
+            ch = (d.get("choices") or [{}])[0]
+            delta = (ch.get("delta") or {}).get("content") or ""
+            if delta:
+                if first is None:
+                    first = time.time() - t0
+                text_parts.append(delta)
+                yield ("delta", delta)
+    dt = time.time() - t0
+    text = "".join(text_parts)
+    comp = usage.get("completion_tokens") or 0
+    yield ("done", {"content": text, "elapsed_s": round(dt, 3),
+                    "ttft_s": round(first, 3) if first is not None else None,
+                    "prompt_tokens": usage.get("prompt_tokens"),
+                    "completion_tokens": comp,
+                    "decode_tok_s": round(comp / dt, 2) if comp and dt else None})
+
+
+def resolve_mode(img: Image.Image, mode: str) -> str:
+    """auto 模式的具体模式判定（sync/stream 共用，避免两套逻辑漂移）。"""
+    if mode != "auto":
+        return mode
+    w, h = img.size
+    if looks_like_table(img) and not (h >= 1.2 * w and max(w, h) >= 1800):
+        return "table"
+    if os.path.exists(LAYOUT_MODEL) and ((h >= 1.2 * w and max(w, h) >= 1200) or max(w, h) >= 2200):
+        return "layout"
+    if (h >= 1.2 * w and max(w, h) >= 1200) or max(w, h) >= 2200:
+        return "page"
+    if w >= 2.5 * h and w >= 1200:
+        return "wide"
+    return "region"
+
+
+def plan_blocks(img: Image.Image, mode: str, prompt: str) -> list[dict]:
+    """把一次请求拆成若干「识别块」：每块有 image / prompt / kind，供流式逐块输出。"""
+    if mode == "layout" and os.path.exists(LAYOUT_MODEL):
+        dets = layout_detect(img)
+        w, h = img.size
+        tables = [d for d in dets if d["label"] == "table"]
+        if len(dets) == 1 and tables:
+            x1, y1, x2, y2 = tables[0]["box"]
+            if (x2 - x1) * (y2 - y1) > 0.35 * float(w * h):
+                block, _ = letterbox_448(img)
+                return [{"kind": "table", "label": "table", "image": block, "prompt": TABLE_PROMPT,
+                         "note": "single-table-page"}]
+        blocks = []
+        for d in dets:
+            label = d["label"]
+            if label in ("abandon", "figure"):
+                continue
+            x1, y1, x2, y2 = d["box"]
+            pad = 4
+            crop = img.crop((int(max(0, x1 - pad)), int(max(0, y1 - pad)),
+                             int(min(img.width, x2 + pad)), int(min(img.height, y2 + pad))))
+            if crop.width < 8 or crop.height < 8:
+                continue
+            block, _ = letterbox_448(crop)
+            blocks.append({"kind": "region", "label": label, "image": block,
+                           "prompt": LAYOUT_PROMPT.get(label, "Text Recognition:"),
+                           "box": d["box"], "conf": d["conf"]})
+        return blocks
+    if mode == "table":
+        w, h = img.size
+        if max(w, h) <= 2048:
+            block, _ = letterbox_448(img)
+            return [{"kind": "table", "label": "table", "image": block, "prompt": TABLE_PROMPT}]
+        scale = 448.0 / w
+        strip_h = max(64, int(448.0 / scale)) if scale > 0 else h
+        n = max(2, math.ceil(h / max(strip_h, 1)))
+        overlap = max(8, int(strip_h * 0.06))
+        step = max(1, (h - overlap) // n if n > 1 else h)
+        blocks, y, idx = [], 0, 0
+        while y < h:
+            y1 = min(h, y + strip_h + overlap)
+            crop = img.crop((0, y, w, y1))
+            block, _ = letterbox_448(crop)
+            blocks.append({"kind": "table", "label": "table", "image": block,
+                           "prompt": TABLE_PROMPT, "y": (y, y1), "index": idx})
+            idx += 1
+            if y1 >= h:
+                break
+            y += step
+        return blocks
+    if mode == "wide":
+        w, h = img.size
+        n = max(2, math.ceil(w / 1000.0))
+        step = max(1, w // n)
+        overlap = max(20, int(step * 0.06))
+        blocks, x, idx = [], 0, 0
+        while x < w:
+            x1 = min(w, x + step + overlap)
+            crop = img.crop((x, 0, x1, h))
+            block, _ = letterbox_448(crop)
+            blocks.append({"kind": "region", "label": "wide", "image": block,
+                           "prompt": prompt or "Text Recognition:", "x": (x, x1), "index": idx})
+            idx += 1
+            if x1 >= w:
+                break
+            x += step
+        return blocks
+    if mode == "page":
+        skip_global = request.form.get("skip_global", "1") != "0"
+        blocks = []
+        for s in make_slices(img):
+            if skip_global and s["kind"] == "global":
+                continue
+            ratio = ink_ratio(s["image"])
+            if ratio < 0.003:
+                continue
+            block, _ = letterbox_448(s["image"])
+            blocks.append({"kind": "page", "label": s["kind"], "image": block,
+                           "prompt": prompt or "Text Recognition:",
+                           "tokens": s["tokens"], "ink": round(ratio, 5)})
+        return blocks
+    block, _ = letterbox_448(img)
+    return [{"kind": "region", "label": "region", "image": block,
+             "prompt": prompt or "Text Recognition:"}]
+
+
+def assemble_markdown(mode: str, labels: list[str], contents: list[str]) -> str:
+    """按模式把各块结果组装成最终 markdown（表格模式合并行）。"""
+    if mode == "table":
+        if len(contents) == 1:
+            try:
+                return otsl_to_markdown(contents[0]) or contents[0]
+            except Exception:
+                return contents[0]
+        tables = [rows for rows in (_parse_table_rows(c) for c in contents) if rows]
+        return _rows_to_markdown(_merge_rows(tables)) if tables else "\n\n".join(contents)
+    md_parts = []
+    for label, c in zip(labels, contents):
+        if label == "table":
+            try:
+                md_parts.append(otsl_to_markdown(c) or c)
+                continue
+            except Exception:
+                pass
+        md_parts.append(c)
+    return "\n\n".join(md_parts)
+
+
 # ---------- 路由 ----------
 @app.get("/api/health")
 def health():
@@ -543,6 +715,91 @@ def api_chat():
         return jsonify({"content": r["content"], "metrics": r, "error": None})
     except Exception as exc:  # noqa: BLE001
         return jsonify({"error": f"{type(exc).__name__}: {exc}"})
+
+
+def _sse(obj: dict) -> str:
+    return "data: " + json.dumps(obj, ensure_ascii=False) + "\n\n"
+
+
+@app.post("/api/chat_stream")
+def api_chat_stream():
+    """文本对话流式输出（SSE）：event: delta/done。"""
+    body = request.get_json(silent=True) or {}
+    prompt = body.get("prompt", "")
+    max_tokens = int(body.get("max_tokens", 256))
+
+    def gen():
+        t0 = time.time()
+        try:
+            yield _sse({"type": "meta", "mode": "chat"})
+            for kind, payload in call_axllm_stream(None, prompt, max_tokens):
+                if kind == "delta":
+                    yield _sse({"type": "delta", "text": payload})
+                else:
+                    yield _sse({"type": "done", "content": payload["content"],
+                                "metrics": dict(payload, elapsed_s=round(time.time() - t0, 3))})
+        except Exception as exc:  # noqa: BLE001
+            yield _sse({"type": "error", "error": f"{type(exc).__name__}: {exc}"})
+
+    return Response(stream_with_context(gen()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+@app.post("/api/ocr_stream")
+def api_ocr_stream():
+    """图片 OCR 流式输出（SSE）：meta → （part_start → delta* → part_done）* → done。"""
+    f = request.files.get("image")
+    if f is None:
+        return jsonify({"error": "缺少 image"})
+    prompt = request.form.get("prompt", "")
+    mode = request.form.get("mode", "auto")
+    max_tokens = int(request.form.get("max_tokens", 768))
+    img = Image.open(io.BytesIO(f.read())).convert("RGB")
+    mode = resolve_mode(img, mode)
+
+    def gen():
+        t0 = time.time()
+        try:
+            if mode == "layout" and os.path.exists(LAYOUT_MODEL):
+                yield _sse({"type": "meta", "mode": mode, "stage": "layout_detect"})
+            blocks = plan_blocks(img, mode, prompt)
+            yield _sse({"type": "meta", "mode": mode, "blocks": len(blocks),
+                        "labels": [b.get("label") for b in blocks]})
+            contents, labels, part_metrics = [], [], []
+            for i, b in enumerate(blocks):
+                yield _sse({"type": "part_start", "index": i, "label": b.get("label"),
+                            "total": len(blocks)})
+                acc = []
+                for kind, payload in call_axllm_stream(b["image"], b["prompt"], max_tokens):
+                    if kind == "delta":
+                        acc.append(payload)
+                        yield _sse({"type": "delta", "index": i, "text": payload})
+                    else:
+                        content = payload["content"]
+                        part_metrics.append({"index": i, "label": b.get("label"),
+                                             "elapsed_s": payload["elapsed_s"],
+                                             "ttft_s": payload.get("ttft_s"),
+                                             "completion_tokens": payload.get("completion_tokens")})
+                        contents.append(content)
+                        labels.append(b.get("label") or b["kind"])
+                        yield _sse({"type": "part_done", "index": i, "label": b.get("label"),
+                                    "content": content, "elapsed_s": payload["elapsed_s"],
+                                    "ttft_s": payload.get("ttft_s")})
+            markdown = assemble_markdown(mode, labels, contents)
+            comp = sum(m.get("completion_tokens") or 0 for m in part_metrics)
+            ttfts = [m["ttft_s"] for m in part_metrics if m.get("ttft_s")]
+            elapsed = round(time.time() - t0, 3)
+            metrics = {"mode": mode, "slices": len(blocks), "parts": part_metrics,
+                       "elapsed_s": elapsed, "completion_tokens": comp,
+                       "ttft_ms": int(min(ttfts) * 1000) if ttfts else None,
+                       "decode_tok_s": round(comp / elapsed, 2) if comp and elapsed else None}
+            yield _sse({"type": "done", "content": "\n\n".join(contents),
+                        "markdown": markdown, "metrics": metrics})
+        except Exception as exc:  # noqa: BLE001
+            yield _sse({"type": "error", "error": f"{type(exc).__name__}: {exc}"})
+
+    return Response(stream_with_context(gen()), mimetype="text/event-stream",
+                    headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/slices")

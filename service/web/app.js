@@ -66,6 +66,10 @@
     maxTokens: $('max-tokens'),
     submitBtn: $('submit-btn'),
     cancelBtn: $('cancel-btn'),
+    sampleTable: $('sample-table'),
+    sampleDoc: $('sample-doc'),
+    streamOcr: $('stream-ocr'),
+    streamChat: $('stream-chat'),
     chatPrompt: $('chat-prompt'),
     chatMaxTokens: $('chat-max-tokens'),
     chatSubmitBtn: $('chat-submit-btn'),
@@ -814,6 +818,203 @@
     }
   }
 
+  // ================================================================ 流式（SSE）
+  function streamSupported() {
+    return !!(window.fetch && window.ReadableStream && window.TextDecoder);
+  }
+
+  function streamRequest(url, init, onEvent) {
+    var controller = new AbortController();
+    state.controller = controller;
+    var opts = init || {};
+    opts.signal = controller.signal;
+    return fetch(url, opts).then(function (response) {
+      if (!response.ok) {
+        return response.text().then(function (text) {
+          throw new Error('HTTP ' + response.status + (text ? '：' + text.slice(0, 160) : ''));
+        });
+      }
+      if (!response.body || !response.body.getReader) {
+        throw new Error('浏览器不支持流式读取（ReadableStream 不可用）');
+      }
+      var reader = response.body.getReader();
+      var decoder = new TextDecoder('utf-8');
+      var buffer = '';
+      function pump() {
+        return reader.read().then(function (res) {
+          if (res.done) return;
+          buffer += decoder.decode(res.value, { stream: true });
+          var idx;
+          while ((idx = buffer.indexOf('\n\n')) >= 0) {
+            var chunk = buffer.slice(0, idx).trim();
+            buffer = buffer.slice(idx + 2);
+            if (!chunk) continue;
+            chunk.split('\n').forEach(function (line) {
+              if (line.indexOf('data:') !== 0) return;
+              var payload = line.slice(5).trim();
+              if (!payload) return;
+              var ev = null;
+              try { ev = JSON.parse(payload); } catch (e) { return; }
+              onEvent(ev);
+            });
+          }
+          return pump();
+        });
+      }
+      return pump();
+    });
+  }
+
+  function startStreamView(label) {
+    if (el.resultEmpty) el.resultEmpty.hidden = true;
+    if (el.resultError) el.resultError.hidden = true;
+    if (el.resultLoading) el.resultLoading.hidden = true;
+    if (el.resultContent) el.resultContent.hidden = false;
+    if (el.markdownOut) {
+      el.markdownOut.innerHTML = '<div class="stream-live">' +
+        '<pre id="stream-pre"></pre>' +
+        '<div class="stream-status" id="stream-status"></div>' +
+        '</div>';
+    }
+    if (el.rawOut) el.rawOut.textContent = '';
+    if (el.rawDetails) el.rawDetails.open = false;
+    if (el.copyResult) el.copyResult.hidden = true;
+    setResultState('running', label || '流式输出中');
+    return {
+      pre: document.getElementById('stream-pre'),
+      status: document.getElementById('stream-status')
+    };
+  }
+
+  function submitImageStream() {
+    var prompt = currentPrompt();
+    var mode = currentMode();
+    state.lastMode = mode;
+    var form = new FormData();
+    form.append('image', state.file, state.file.name || 'image.png');
+    form.append('prompt', prompt);
+    form.append('mode', mode);
+    form.append('max_tokens', String(clampTokens(el.maxTokens && el.maxTokens.value, 1024)));
+
+    beginLoading('image');
+    var view = startStreamView('流式识别中');
+    var acc = '';
+    var t0 = Date.now();
+    var firstAt = null;
+    var streamError = null;
+    var total = 0;
+    streamRequest('/api/ocr_stream', { method: 'POST', body: form }, function (ev) {
+      if (ev.type === 'meta') {
+        total = ev.blocks || 0;
+        if (view.status) view.status.textContent = '模式 ' + (ev.mode || mode) + (total ? ' · ' + total + ' 块' : '');
+      } else if (ev.type === 'part_start') {
+        if (acc && !acc.endsWith('\n')) acc += '\n\n';
+        if (view.status) {
+          view.status.textContent = (ev.total ? '区域 ' + (ev.index + 1) + '/' + ev.total : '区域 ' + (ev.index + 1)) +
+            ' · ' + (ev.label || '识别') + ' 识别中…';
+        }
+      } else if (ev.type === 'delta') {
+        if (view.pre && !view.pre.classList.contains('is-done')) {
+          acc += ev.text;
+          view.pre.textContent = acc;
+          if (firstAt === null) {
+            firstAt = (Date.now() - t0) / 1000;
+            if (el.kpiTtft) setKpi(el.kpiTtft, Math.round(firstAt * 1000).toLocaleString('en-US'));
+          }
+          if (el.kpiElapsed) setKpi(el.kpiElapsed, ((Date.now() - t0) / 1000).toFixed(1), ' s');
+          if (view.status) {
+            var parts = view.status.textContent.split(' · ')[0];
+            view.status.textContent = parts + ' · 首字 ' + firstAt.toFixed(1) + ' s · ' + acc.length + ' 字';
+          }
+        }
+      } else if (ev.type === 'part_done') {
+        if (view.status) {
+          view.status.textContent = (ev.total ? '区域 ' + (ev.index + 1) + '/' + ev.total : '') +
+            ' 完成（' + (ev.elapsed_s || 0).toFixed(1) + ' s）';
+        }
+      } else if (ev.type === 'done') {
+        endLoading();
+        if (view.pre) { view.pre.textContent = ev.content || acc; view.pre.classList.add('is-done'); }
+        renderResult({ content: ev.content || acc, markdown: ev.markdown, metrics: ev.metrics }, 'image', mode);
+        setResultState('done', '完成');
+      } else if (ev.type === 'error') {
+        streamError = ev.error || '服务端流式错误';
+      }
+    }).then(function () {
+      if (streamError) {
+        showError('图片识别失败：' + streamError);
+      } else if (state.loading) {
+        endLoading();
+      }
+    }).catch(function (error) {
+      // 流式不可用/中断时回退到非流式请求，保证功能可用
+      if (!acc) {
+        endLoading();
+        var form2 = new FormData();
+        form2.append('image', state.file, state.file.name || 'image.png');
+        form2.append('prompt', prompt);
+        form2.append('mode', mode);
+        form2.append('max_tokens', String(clampTokens(el.maxTokens && el.maxTokens.value, 1024)));
+        request('/api/ocr', { method: 'POST', body: form2 })
+          .then(function (data) { renderResult(data, 'image', mode); })
+          .catch(function (e) { handleFailure(e, 'image'); });
+        return;
+      }
+      endLoading();
+      handleFailure(error, 'image');
+    });
+  }
+
+  function submitChatStream() {
+    var prompt = el.chatPrompt ? (el.chatPrompt.value || '').trim() : '';
+    var maxTokens = clampTokens(el.chatMaxTokens && el.chatMaxTokens.value, 512);
+    state.lastMode = 'chat';
+    if (el.streamChat && el.streamChat.checked && streamSupported()) {
+      submitChatStream();
+      return;
+    }
+    beginLoading('chat');
+    var view = startStreamView('流式对话中');
+    var acc = '';
+    var t0 = Date.now();
+    var firstAt = null;
+    var streamError = null;
+    streamRequest('/api/chat_stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt: prompt, max_tokens: maxTokens })
+    }, function (ev) {
+      if (ev.type === 'delta') {
+        if (view.pre && !view.pre.classList.contains('is-done')) {
+          acc += ev.text;
+          view.pre.textContent = acc;
+          if (firstAt === null) {
+            firstAt = (Date.now() - t0) / 1000;
+            if (el.kpiTtft) setKpi(el.kpiTtft, Math.round(firstAt * 1000).toLocaleString('en-US'));
+          }
+          if (el.kpiElapsed) setKpi(el.kpiElapsed, ((Date.now() - t0) / 1000).toFixed(1), ' s');
+          if (view.status) view.status.textContent = '首字 ' + firstAt.toFixed(1) + ' s · ' + acc.length + ' 字';
+        }
+      } else if (ev.type === 'done') {
+        endLoading();
+        if (view.pre) { view.pre.textContent = ev.content || acc; view.pre.classList.add('is-done'); }
+        renderResult({ content: ev.content || acc, metrics: ev.metrics }, 'chat', 'chat');
+        setResultState('done', '完成');
+      } else if (ev.type === 'error') {
+        streamError = ev.error || '服务端流式错误';
+      }
+    }).then(function () {
+      if (streamError) {
+        showError('文本对话失败：' + streamError);
+      } else if (state.loading) {
+        endLoading();
+      }
+    }).catch(function (error) {
+      endLoading();
+      handleFailure(error, 'chat');
+    });
+  }
+
   // ================================================================ 提交
   function submitImage() {
     if (state.loading) return;
@@ -830,6 +1031,10 @@
     }
     var mode = currentMode();
     state.lastMode = mode;
+    if (el.streamOcr && el.streamOcr.checked && streamSupported()) {
+      submitImageStream();
+      return;
+    }
 
     var form = new FormData();
     form.append('image', state.file, state.file.name || 'image.png');
@@ -858,6 +1063,10 @@
       return;
     }
     state.lastMode = 'chat';
+    if (el.streamChat && el.streamChat.checked && streamSupported()) {
+      submitChatStream();
+      return;
+    }
     beginLoading('chat');
     request('/api/chat', {
       method: 'POST',
@@ -876,6 +1085,36 @@
         handleFailure(error, 'chat');
       });
   }
+
+  // 示例图：同源 fetch → File → 复用完整上传/识别流程
+  function loadSample(btn) {
+    if (state.loading || !btn) return;
+    var url = btn.getAttribute('data-sample');
+    var name = btn.getAttribute('data-name') || 'sample.png';
+    btn.disabled = true;
+    fetch(url).then(function (r) {
+      if (!r.ok) throw new Error('示例下载失败 HTTP ' + r.status);
+      return r.blob();
+    }).then(function (blob) {
+      var file = new File([blob], name, { type: 'image/png' });
+      state.file = file;
+      state.objectUrl = URL.createObjectURL(file);
+      if (el.previewImg) el.previewImg.src = state.objectUrl;
+      if (el.previewName) el.previewName.textContent = name + ' · ' + Math.round(blob.size / 1024) + ' KB';
+      if (el.preview) el.preview.hidden = false;
+      if (el.dropzone) el.dropzone.classList.add('is-filled');
+      if (el.taskSelect) { el.taskSelect.value = (name.indexOf('示例表格') >= 0) ? 'Table Recognition:' : 'Text Recognition:'; }
+      updatePromptEcho();
+      submitImage();
+    }).catch(function (e) {
+      showError('示例载入失败：' + (e && e.message ? e.message : e));
+    }).then(function () {
+      btn.disabled = false;
+    });
+  }
+
+  on(el.sampleTable, 'click', function () { loadSample(el.sampleTable); });
+  on(el.sampleDoc, 'click', function () { loadSample(el.sampleDoc); });
 
   on(el.form, 'submit', function (event) {
     event.preventDefault();

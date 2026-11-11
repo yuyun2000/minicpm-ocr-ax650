@@ -26,7 +26,20 @@ demo/minicpm-ocr/web/
 
 所有请求都走**同源相对路径**，前端不硬编码主机名和端口；页面从哪个地址打开，就请求哪个地址的 `/api/*`。
 
-### 1.1 `POST /api/ocr` — 图片识别
+### 1.1 流式接口（SSE，页面默认使用）
+
+页面「流式输出」开关默认开启时走流式；失败自动回退到下面的非流式接口。
+
+- `POST /api/ocr_stream`（multipart，字段同 `/api/ocr`）→ `text/event-stream`：
+  - `{"type":"meta","mode":"table","blocks":1,...}`
+  - `{"type":"part_start","index":0,"label":"table","total":1}`
+  - `{"type":"delta","index":0,"text":"<"}`
+  - `{"type":"part_done","index":0,"content":"<otsl>...","elapsed_s":21.6,"ttft_s":2.1}`
+  - `{"type":"done","content":"...","markdown":"| ... |","metrics":{...}}`
+  - 出错：`{"type":"error","error":"..."}`
+- `POST /api/chat_stream`（JSON `{prompt,max_tokens}`）→ 同样的 `meta/delta/done` 事件。
+
+### 1.2 `POST /api/ocr` — 图片识别（非流式）
 
 `Content-Type: multipart/form-data`
 

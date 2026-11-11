@@ -166,6 +166,18 @@ CPU 慢的根因不是视觉塔、也不是 1.3B 参数，而是 18 层 GatedDel
 5. 中文表格 / 密集小字页面的 token 长度分布（决定 `max_tokens` 默认值）。
 
 
+## 流式（SSE）实测
+
+| 场景 | 首字时间（TTFT） | 总耗时 |
+|---|---|---|
+| 表格示例（table 模式，233 token） | **2.1 s** | 21.7 s |
+| 文本对话（32 token） | **0.56 s** | 2.8 s |
+| 版面模式 PPT 页（6 区域） | 第 1 区 ~2.1 s | 19.5 s |
+
+Bash 验证：`curl -N -X POST .../api/ocr_stream` 可看到逐段 `data:` 事件；浏览器 E2E（CDP）断言
+流式期间 `#stream-pre` 字数递增、结束后渲染 `<table>` 且含 `83.17`、KPI `TTFT=2,115 ms`。
+详见 [streaming.md](streaming.md)。
+
 ## 最终实测（2026-11-11，U16 vision 包）
 
 板端：AX650N（8 核 aarch64 / 3.8 GB DDR / CMM 4096 MB），axllm 18081，`max_token_len=2047`，
