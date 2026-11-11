@@ -3,6 +3,11 @@
 AX650 板端（Ubuntu 22.04 aarch64）自托管的纯静态网页测试台，用于上传文档图片 / 输入纯文本，
 调用板端 OCR 推理服务，查看 **Markdown 渲染结果** 与 **TTFT / decode / 切片** 等性能指标。
 
+识别模式（页面「识别模式」单选）：`自动（推荐）` / `表格` / `版面` / `整页` / `单区域`。
+- 表格截图选 `自动` 或 `表格`：整表识别后输出 Markdown 表格（整页模式会把表格沿列切开导致乱序）；
+- 混合版面文档选 `版面`：DocLayout-YOLO 检测区域后按类型识别、按阅读顺序拼接（需服务端设置 `LAYOUT_MODEL`）；
+- `表格`/`版面` 模式会忽略上方 prompt，按区域类型自动选 `Table Recognition:` / `Formula Recognition:` / `Text Recognition:`。
+
 视觉严格按 **M5Stack Web Design** 规范实现（产品密度 · 内部工具页配方 B）。
 零依赖、无构建步骤、无 CDN；只用原生 HTML / CSS / JS，由板端 Flask 直接托管。
 
@@ -29,7 +34,7 @@ demo/minicpm-ocr/web/
 | --- | --- | --- | --- |
 | `image` | file | ✅ | 图片文件（PNG / JPEG / WebP） |
 | `prompt` | string | ✅ | 任务词：`Text Recognition:`、`Table Recognition:`、`Formula Recognition:`、`Seal Recognition:`、`Chart to Table:`，或自定义 prompt |
-| `mode` | string | ✅ | `page` = 整页模式（服务端切片）；`region` = 单区域模式 |
+| `mode` | string | ✅ | `auto`（默认，自动选择）/ `table`（表格整表识别）/ `layout`（DocLayout 版面检测）/ `page`（整页切片）/ `wide`（宽条分块）/ `region`（单块） |
 | `max_tokens` | int | ✅ | 输出上限，前端限制在 16–4096 |
 
 响应 `200 application/json`：

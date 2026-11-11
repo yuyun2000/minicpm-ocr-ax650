@@ -20,6 +20,7 @@
 #
 # 环境变量：
 #   AXLLM_PORT=18081  PORT=8080  MAX_SLICES_PER_PAGE=9  AXLLM_MODEL=（默认自动从 /v1/models 取）
+#   LAYOUT_MODEL=（可选）DocLayout-YOLO 版面 axmodel 路径；设置后自动/版面模式可用，不设则回退 page
 #   LD_LIBRARY_PATH 会追加 /opt/lib:/opt/bin:<pkg>/bin
 # =============================================================================
 set -uo pipefail
@@ -99,6 +100,7 @@ start_web() {
   say "启动 Flask 测试台（端口 $WEB_PORT，后端 http://127.0.0.1:$AXLLM_PORT）"
   pushd "$SERVICE_DIR" >/dev/null
   setsid env AXLLM_URL="http://127.0.0.1:$AXLLM_PORT" PORT="$WEB_PORT" \
+    LAYOUT_MODEL="${LAYOUT_MODEL:-}" \
     python3 board_app.py >> "$WEB_LOG" 2>&1 < /dev/null &
   echo $! > "$WEB_PIDFILE"
   popd >/dev/null
