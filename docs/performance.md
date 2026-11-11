@@ -1,9 +1,9 @@
-# 性能：AX650 板端实测
+# 性能：AX8850 板端实测（AX650N/AX650C 板型）
 
-> 板卡：AX650N DEMO（aarch64，Ubuntu 22.04，kernel 5.15.73，8 核 / 3.8 GB DDR / CMM 4096 MB）
+> 板卡：AX8850（AX650N 板型）aarch64，Ubuntu 22.04，kernel 5.15.73，8 核 / 3.8 GB DDR / CMM 4096 MB
 > ⚠️ **本节为历史数据**（首版 INT8 vision 包，2026-11-10）。最终 U16 vision 包的数字见文末「最终实测」一节。
 >
-> 模型：MiniCPM-OCR 1.0 → AX650（24 层 INT8 + BF16 post + 首版 INT8 vision），axllm 18081
+> 模型：MiniCPM-OCR 1.0 → AX8850（24 层 INT8 + BF16 post + 首版 INT8 vision），axllm 18081
 > 数据来自 2026-11-10 ~ 2026-11-11 板端实测；开头的「历史数据」是首版 INT8 包，最终 U16 包见文末「最终实测」。
 
 ---
@@ -31,7 +31,7 @@
 
 | 项 | 值 |
 |---|---|
-| 板卡 | AX650N DEMO，aarch64 |
+| 板卡 | AX8850（AX650N 板型），aarch64 |
 | 系统 | Ubuntu 22.04，kernel 5.15.73，Python 3.10.12 |
 | 内存 | 3.8 GB DDR，CMM 分区 4096 MB |
 | 磁盘 | 24 GB（部署 2.5 GB 模型包后剩 ≈16 GB） |
@@ -180,7 +180,7 @@ Bash 验证：`curl -N -X POST .../api/ocr_stream` 可看到逐段 `data:` 事�
 
 ## 最终实测（2026-11-11，U16 vision 包）
 
-板端：AX650N（8 核 aarch64 / 3.8 GB DDR / CMM 4096 MB），axllm 18081，`max_token_len=2047`，
+板端：AX8850（8 核 aarch64 / 3.8 GB DDR / CMM 4096 MB），axllm 18081，`max_token_len=2047`，
 `current prefill_max_token_num=1152`，`VisionModule init ok: tokens_per_block=256, out_dtype=fp32`。
 
 | 项 | 实测 |

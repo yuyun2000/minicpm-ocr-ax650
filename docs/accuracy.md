@@ -2,7 +2,7 @@
 
 > 本文回答一个问题：**它跑出来的结果到底是不是对的**。
 > 所有数字来自 2026-11-10 ~ 2026-11-11 的板端与主机实测，均为最终版（U16 vision 已上线）。
-> 板卡：AX650N（Ubuntu 22.04 aarch64，kernel 5.15.73，运行时 `/soc/lib/libax_engine.so` V1.45.0_P39，2024-09）
+> 板卡：AX8850（AX650N 板型）（Ubuntu 22.04 aarch64，kernel 5.15.73，运行时 `/soc/lib/libax_engine.so` V1.45.0_P39，2024-09）
 
 ---
 
@@ -198,7 +198,7 @@ vision 转换资产，其中 `pulsar2_configs/config_vision_448_npu3.json` 写�
 | 文本 "请用一句话解释 OCR" | 通顺中文解释，1.90 s |
 | 文本 中译英 | 1.10 s |
 | 448×448 表格块（Table Recognition:） | 正确 OTSL：6 行 × 8 列（Name / Characteristics / Sample Size… / C. albicauda…），与图中表格内容一致 |
-| 官方 MiniCPM-V-4.6 包（对照） | 描述红矩形 + 白字 HELLO AX650 正确，2.87 s |
+| 官方 MiniCPM-V-4.6 包（对照） | 描述红矩形 + 白字 HELLO AX8850 正确，2.87 s |
 
 量化方法（板端 vs HF CPU 基线）已经写好：`scripts/compare_ocr_output.py`（字符级相似度 +
 表格单元格 P/R/F1 + 数字准确率）。本仓库验证的是单块与 12 页抽样；**OmniDocBench 全量 1651 页未跑**（耗时约 1~2 天/单板，后续可批量跑）。

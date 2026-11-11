@@ -1,17 +1,17 @@
 > ⚠️ 本文是 **2026-11-10 的部署过程记录**（INT8 vision 时代）。最终状态与 U16 vision 数字见 [final-summary.md](final-summary.md) 与 [performance.md](performance.md)。
 
-# MiniCPM-OCR 1.0 → AX650 转换 · 部署 · 性能报告
+# MiniCPM-OCR 1.0 → AX8850 转换 · 部署 · 性能报告
 
 > 2026-11-10｜源模型 `openbmb/MiniCPM-OCR-1.0`（1.30 B，BF16）｜目标 AX650（AX650N DEMO 板，Ubuntu 22.04 aarch64，8 核 / 3.8 GB DDR / CMM 4096 MB）
 > 工具链：Pulsar2 8.0 + Magnetar（Ubuntu 24.04 x86_64 宿主机 192.168.20.38）
 
 ## 0. 一句话结论
 
-**已在本机完成转换并在真实 AX650 板上跑起来**：LLM 24 层 + post（INT8/BF16）与视觉编码器（INT8）全部编成 axmodel，
+**已在本机完成转换并在真实 AX8850 板上跑起来**：LLM 24 层 + post（INT8/BF16）与视觉编码器（INT8）全部编成 axmodel，
 axllm 在板上成功加载（`VisionModule init ok: type=MiniCPMV46VL, tokens_per_block=256, embed_size=1024`），
 文本对话已验证（"1+1"→"2"，0.41 s）；图像路径因首版 prefill 桶只有 128 token 而报上下文超限，正在用 prefill=1152 的 v2 重建补齐。
 
-## 1. 转换产物（AX650 / NPU1）
+## 1. 转换产物（AX8850 / AX650 编译目标 / NPU1）
 
 | 产物 | 规格 | 大小 | 备注 |
 |---|---|---|---|
@@ -20,7 +20,7 @@ axllm 在板上成功加载（`VisionModule init ok: type=MiniCPMV46VL, tokens_p
 | Token embedding | `model.embed_tokens.weight.bfloat16.bin` | 508 MB | 248100×1024，bf16，mmap 加载 |
 | 视觉编码器 | `minicpm_ocr_vision_448.axmodel` | 459 MB | 448×448 → 256×1024 image embeds，INT8 |
 | Tokenizer | `minicpm_ocr_tokenizer.txt` | 12.1 MB | magic 430 / HUGGINGFACE BPE；C++ test_tokenizer 5/5 PASS |
-| 运行时 | `bin/axllm` | 2.4 MB | AX650 aarch64（AXERA 官方包，commit 见 `bin/axllm.version.json`） |
+| 运行时 | `bin/axllm` | 2.4 MB | AX8850（AX650 目标）aarch64（AXERA 官方包，commit 见 `bin/axllm.version.json`） |
 
 转换关键三步（这是能跑起来的原因）：
 1. 权重键改名 `model.language_model.* → model.*`（视觉张量剔除），得到纯文本 LLM 目录 `origin_text/`；
@@ -35,7 +35,7 @@ Pulsar2 自动把该栈识别为 `qwen3_5_dense`（与 AXERA 官方 MiniCPM-V-4.
 |---|---|
 | 视觉 ONNX（塔+merge+merger） vs torch | cosine **0.9999999992**，max_abs 2.46e-03 |
 | 视觉 ONNX（塔单独） vs torch | cosine **0.9999999997** |
-| 视觉 axmodel 仿真 vs ONNX（AX650 仿真器） | 见 `vision-sim.json`（pulsar2 run 对分） |
+| 视觉 axmodel 仿真 vs ONNX（AX650 target 仿真器） | 见 `vision-sim.json`（pulsar2 run 对分） |
 | Tokenizer（C++ 实现 vs HF） | 文本 / 图像 / 视频 3 类用例 **5/5 PASS**（`tokenizer.axera/build/test_tokenizer -m 28`） |
 | 整模型单 ONNX | ❌ 不可行（`DynamicCache` 入参、`aten::diff` opset 不支持、NaViT 的 data-dependent SymInt），故采用"拆图 + llm_build2"方案 |
 | 板上文本语义 | "1+1等于几？只输出数字" → **"2"**；"请用一句话解释 OCR" → 通顺中文解释 |
@@ -46,7 +46,7 @@ Pulsar2 自动把该栈识别为 `qwen3_5_dense`（与 AXERA 官方 MiniCPM-V-4.
 
 | 项 | 值 |
 |---|---|
-| 板卡 | AX650N DEMO，aarch64 |
+| 板卡 | AX8850（AX650N 板型），aarch64 |
 | 系统 | Ubuntu 22.04（内核见 `uname -a`），Python 3.10.12 |
 | 内存 | 3.8 GB DDR，CMM 分区 4096 MB |
 | 磁盘 | 24 GB（模型包 2.5 GB 已部署，剩余 16 GB） |

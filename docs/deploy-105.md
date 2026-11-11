@@ -14,7 +14,7 @@
 
 - 为 AX650 编译的 axmodel（vision U16、DocLayout-YOLO U16）在 AX650C 上**可直接运行**：
   版面模型 213 ms（与 144 的 212.6 ms 基本相同）；
-- `axllm` 官方 AX650 aarch64 二进制可运行，加载后 `remain_cmm(3469 MB)`，
+- `axllm` 官方 AX8850（AX650 目标）aarch64 二进制可运行，加载后 `remain_cmm(3469 MB)`，
   `VisionModule tokens_per_block=256`、`prefill_max_token_num=1152`、`max_token_len=2047` 均正常。
 
 ## 部署步骤（与 144 相同，端口不同）

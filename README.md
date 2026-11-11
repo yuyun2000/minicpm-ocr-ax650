@@ -1,12 +1,20 @@
-# MiniCPM-OCR 1.0 on AX650
+# MiniCPM-OCR 1.0 on AX8850
 
 把 [MiniCPM-OCR 1.0](https://huggingface.co/openbmb/MiniCPM-OCR-1.0)（1.30 B 端到端 OCR 视觉语言模型）完整跑在
-**AX650 / AX650N** NPU 上的转换流程 + 可运行模型包 + 板端网页测试台。
+**AX8850 系列** NPU 上的转换流程 + 可运行模型包 + 板端网页测试台。
 
 - **视觉编码器**：27 层 SigLIP 类塔 → 静态 ONNX → axmodel（**必须 U16**，INT8 会崩）
 - **文本 LLM**：Qwen3.5 hybrid（24 层 = 18 线性注意力 + 6 full attention）→ `pulsar2 llm_build2` 逐层 axmodel
 - **运行时**：AXERA `axllm`（OpenAI 兼容接口），prefill 桶 1152 / ctx 2048
 - **应用侧**：MiniCPM-V 式切片（9 片 / 2276 token，与官方 processor 逐片一致）+ OTSL→Markdown + 浏览器测试台
+
+## 命名约定（重要）
+
+- 本项目对外统一称 **AX8850 系列**：两块部署板（192.168.10.144 / 192.168.10.105）都是 AX8850 系列，
+  对应 AX650N / AX650C 板型（`/proc/ax_proc/chip_type` 仍显示 `AX650*`）。
+- **编译目标保留 `AX650` 字样**：Pulsar2 的 `--chip AX650` / `target_hardware: AX650` 是工具链目标名；
+  同一份 axmodel 在 AX8850 系列板上兼容运行（本仓库产物即如此）。
+- 文档里出现 AX650 的地方均为「编译目标」或「板型代号」，产品口径以 AX8850 为准。
 
 > ⚠️ 这是**社区转换产物**，不是 AXERA / OpenBMB 官方发布。模型仓：
 > 🤗 [`yunyu1258/minicpm-ocr-1.0-ax650`](https://huggingface.co/yunyu1258/minicpm-ocr-1.0-ax650)（**37 文件 / 2730 MB**：U16 vision + 可选 U16 版面模型 + sha256 清单，Apache-2.0 / 内含 BSD-3 NOTICE）
@@ -26,7 +34,7 @@
 
 > 表格图请用 `auto`/`table`：用 `page` 会把表格沿列切成多条，输出乱序（已复现并记录在
 > [docs/table-mode.md](docs/table-mode.md)）。整页混合版面用 `layout`（需版面 axmodel，见
-> [docs/layout-mode.md](docs/layout-mode.md)）：DocLayout-YOLO 转 AX650 的完整步骤、精度对拍与踩坑都在里面。
+> [docs/layout-mode.md](docs/layout-mode.md)）：DocLayout-YOLO 转 AX8850 的完整步骤、精度对拍与踩坑都在里面。
 
 ## 流式输出（逐字显示）
 
@@ -47,7 +55,7 @@ axllm 支持 OpenAI 兼容 `stream: true`（SSE），板端服务提供两个流
 ![流式输出中](docs/images/streaming.png)
 ![识别完成后的表格](docs/images/result-table.png)
 
-## 实测数字（最终版，AX650N 真板，U16 vision）
+## 实测数字（最终版，AX8850 真板 [AX650N/AX650C 板型]，U16 vision）
 
 | 场景 | 结果 |
 |---|---|
@@ -192,7 +200,7 @@ LLM 用 Pulsar2 8.0（`llm_build2`）；**vision 必须 U16 且必须用 Pulsar2
 
 ## 已知限制
 
-1. **vision 固定 448×448 单块**（每块 256 image token）。整页靠应用侧切片；板端**没有**官方 SDK 的 PP-DocLayoutV3 版面模型（该模型是 DETR+GridSample，不适合 AX650，见 [docs/layout-model-feasibility.md](docs/layout-model-feasibility.md)）。实测版面信息对 OmniDocBench TextEdit 有约 26 点收益，后续可换 DocLayout-YOLO。
+1. **vision 固定 448×448 单块**（每块 256 image token）。整页靠应用侧切片；板端**没有**官方 SDK 的 PP-DocLayoutV3 版面模型（该模型是 DETR+GridSample，不适合 AX8850，见 [docs/layout-model-feasibility.md](docs/layout-model-feasibility.md)）。实测版面信息对 OmniDocBench TextEdit 有约 26 点收益，后续可换 DocLayout-YOLO。
 2. `max_context=2048`：整页 9 片（含全局缩略）= 2276 image token，页服务已默认**跳过全局缩略片**（8 片 = 2016 token），避免贴边。
 3. decode ≈11.6 tok/s 是当前瓶颈（237 token 输出 ≈20 s）；DSpark 解码加速未覆盖。
 4. `vlm_type` 复用官方 `MiniCPMV46VL` profile；本模型 4x 压缩（256 token/块）与官方 16x（64 token/块）不同，token 数按本模型实际写入。
@@ -208,7 +216,7 @@ LLM 用 Pulsar2 8.0（`llm_build2`）；**vision 必须 U16 且必须用 Pulsar2
 | U16 vision axmodel | ✅ 511 MB / 615 ms / cosine **0.995322**，已部署板端并上线 HF |
 | 表格模式（auto/table/wide） | ✅ 修复表格被整页切片切碎乱序的问题（[docs/table-mode.md](docs/table-mode.md)） |
 | 版面模式（DocLayout-YOLO U16） | ✅ 35 MB / 212 ms，boxes cos 0.999999 / logits 0.99995，板端已上线（[docs/layout-mode.md](docs/layout-mode.md)） |
-| 第二台设备（AX650C） | ✅ 192.168.10.105:8088 已部署并实测（表格 23.2 s / 版面 21.2 s / 流式首字 0.37 s），见 [docs/deploy-105.md](docs/deploy-105.md) |
+| 第二台设备（AX8850C） | ✅ 192.168.10.105:8088 已部署并实测（表格 23.2 s / 版面 21.2 s / 流式首字 0.37 s），见 [docs/deploy-105.md](docs/deploy-105.md) |
 | 板端服务 + M5Stack 网页 | ✅ `auto/table/layout/page/wide/region` 六种模式，`/api/health` 返回 `layout_model` |
 | 模型仓 | ✅ [`yunyu1258/minicpm-ocr-1.0-ax650`](https://huggingface.co/yunyu1258/minicpm-ocr-1.0-ax650)：37 文件 / 2730 MB，含 `sha256sum.txt` |
 | 端到端精度 | ✅ 单块表格 字符相似度 1.0、数字 12/12；OmniDocBench 12 页 page/oracle 两口径（[docs/omnidocbench.md](docs/omnidocbench.md)） |
@@ -233,6 +241,20 @@ LLM 用 Pulsar2 8.0（`llm_build2`）；**vision 必须 U16 且必须用 Pulsar2
 
 ---
 
+## AX8860 前瞻（估算，待上市实测）
+
+下一代 AX8860（6nm / 256 TOPS / LPDDR5X）的公开规格与我们对本模型的带宽建模估算：
+
+| 平台 | 带宽 | decode 估算 | 单块 OCR（233 token） | TTFT |
+|---|---|---|---|---|
+| AX8850（实测） | ≈34 GB/s | 11.6 tok/s | 22 s | 2.1 s |
+| **AX8860** | 136 GB/s | **≈45 tok/s** | **≈5–6 s** | ≈0.5 s |
+| **AX8860P** | 273 GB/s | **≈90 tok/s** | **≈3 s** | ≈0.4 s |
+| AX8860 + INT4/FP4 权重 | 136 GB/s | ≈85–95 tok/s | ≈2.5 s | ≈0.5 s |
+
+完整推导（每 token 1.6 GB 权重、55% 带宽利用率、prefill/vision 估算、64–128 GB 内存能跑多大模型、
+AX8860 上市后如何重编验证）见 [docs/ax8860-outlook.md](docs/ax8860-outlook.md)。
+
 ## OmniDocBench 评测（2026-11-11）
 
 见 [docs/omnidocbench.md](docs/omnidocbench.md)。摘要（12 页分层抽样）：
@@ -243,4 +265,4 @@ LLM 用 Pulsar2 8.0（`llm_build2`）；**vision 必须 U16 且必须用 Pulsar2
 | oracle（GT 版面框 + 按类型 prompt，上限） | 见文档（运行中） | — |
 
 并发：文本并发 1 → 0.55 req/s（1.82 s）；OCR 并发 1 → 0.082 req/s（12.2 s/块）；axllm 单并发，请求排队。
-官方 1.2 pages/s 是 vLLM/L40S 口径，端侧 AX650 差 2~3 个数量级属预期。
+官方 1.2 pages/s 是 vLLM/L40S 口径，端侧 AX8850 差 2~3 个数量级属预期。

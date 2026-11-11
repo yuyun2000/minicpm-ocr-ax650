@@ -1,8 +1,10 @@
-# 转换流程：HF 原始权重 → AX650 axllm 模型包
+# 转换流程：HF 原始权重 → AX8850 axllm 模型包
 
 > 目标芯片：AX650 / AX650N ｜ 工具链：Pulsar2 8.0（+ Magnetar 做编排）｜ 源模型：`openbmb/MiniCPM-OCR-1.0`（1.30 B，BF16）
 > 宿主机：Linux x86_64（实测 Ubuntu 24.04，16C / 62G）—— **Pulsar2 只发 Linux x86_64 独立包，macOS 上最多做到 ONNX 导出**
 > 本文记录 2026-11-10 ~ 2026-11-11 的完整转换过程与最终数字（U16 vision 已上线）。
+>
+> 命名约定：对外产品名为 **AX8850 系列**；Pulsar2 命令里的 `--chip AX650` 是工具链目标名，保持不变。
 
 ---
 
@@ -60,7 +62,7 @@ HF 权重 → 拆出纯文本 LLM → pulsar2 llm_build2 逐层 axmodel ┐
 | Pulsar2 | 8.0（`llm_build2` 需 ≥6.0；本项目实测 8.0） |
 | Python | 3.10+；导出 ONNX 需要 `torch / transformers>=5.22（原生 minicpm_ocr）/ onnx / onnxruntime / numpy / Pillow` |
 | 磁盘 | 转换工作目录准备 ≥40 GB（24 层 + post + embed ≈2.1 GB，ONNX ≈3.2 GB，Pulsar2 work 目录 13+ GB） |
-| 板端 | 从 AXERA 官方 AX650 包里取 `bin/axllm`（aarch64，本项目包内为官方二进制） |
+| 板端 | 从 AXERA 官方 AX8850 包（AX650 目标）里取 `bin/axllm`（aarch64，本项目包内为官方二进制） |
 
 可复现的最小工作目录：
 
@@ -316,7 +318,7 @@ python3 scripts/assemble_package.py \
 | `filename_image_encoder_axmodel` | `minicpm_ocr_vision_448.axmodel` | 视觉编码器 |
 | `vision_width/height/patch_size` | 448 / 448 / 14 | |
 | `b_use_mmap_load_embed` / `b_use_mmap_load_layer` | true / true | 省内存 |
-| `devices` | `[0]` | AX650 单卡 |
+| `devices` | `[0]` | AX8850 单卡 |
 
 模型包最终体积 ≈ **2.5 GB**（v2：24 层 575 MB + post 1017 MB + embed 508 MB + vision 459 MB + tokenizer 12.1 MB + axllm 2.4 MB）。
 

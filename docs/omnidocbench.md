@@ -1,6 +1,6 @@
-# OmniDocBench 评测：板端 MiniCPM-OCR（AX650）vs 官方仓库指标
+# OmniDocBench 评测：板端 MiniCPM-OCR（AX8850）vs 官方仓库指标
 
-> 2026-11-11｜数据：`opendatalab/OmniDocBench`（1651 页标注 + 图片）｜板端：AX650N，U16 vision，axllm 18081
+> 2026-11-11｜数据：`opendatalab/OmniDocBench`（1651 页标注 + 图片）｜板端：AX8850（AX650N 板型），U16 vision，axllm 18081
 > 评测脚本：`demo/minicpm-ocr/eval_omnidoc.py`（page 模式 / oracle 模式），指标为文本编辑距离（越低越好）
 
 ## 1. 评测口径
@@ -73,8 +73,8 @@
 | **总体** | **0.7346** | **0.4742** | **0.260** |
 
 **结论**：版面信息带来的总体提升约 **26 个点**（多栏/复杂版面页提升 42 点），收益明确；
-但 **PP-DocLayoutV3（DETR + GridSample）不适合 AX650**（见 `layout-model-feasibility.md`）。
-若后续要补版面能力，建议换 **DocLayout-YOLO**（纯卷积、AX650 友好、~20 MB）走 Pulsar2 转换。
+但 **PP-DocLayoutV3（DETR + GridSample）不适合 AX8850**（见 `layout-model-feasibility.md`）。
+若后续要补版面能力，建议换 **DocLayout-YOLO**（纯卷积、AX8850 友好、~20 MB）走 Pulsar2 转换。
 
 ## 5. 与官方仓库指标的关系
 
@@ -92,7 +92,7 @@ B 结果（oracle）才是模型在该 benchmark 上的近似能力值。
 | 图像 OCR | 4 | 0.164 req/s | 请求排队（axllm 单并发） |
 
 整页切片（9 片）：约 **1.5–3.5 min/页**（页面尺寸和内容密度决定；12 页实测平均 91.8 s）。
-官方仓库宣称 1.2 pages/s（vLLM/L40S 级别），端侧 AX650 差 2~3 个数量级，属预期。
+官方仓库宣称 1.2 pages/s（vLLM/L40S 级别），端侧 AX8850 差 2~3 个数量级，属预期。
 
 ## 7. 复现
 

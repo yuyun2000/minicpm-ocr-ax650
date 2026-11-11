@@ -1,4 +1,4 @@
-# PP-DocLayoutV3（原始仓库的版面模型）能否转 AX650？—— 可行性调查
+# PP-DocLayoutV3（原始仓库的版面模型）能否转 AX8850？—— 可行性调查
 
 > 2026-11-10｜目标：MiniCPM-OCR 原始仓库用「PP-DocLayoutV3 版面检测 + 按区域 OCR」，评估把该版面模型也转成 axmodel 的可行性/收益。
 
@@ -57,7 +57,7 @@ Resize 8, Erf 1, Sin/Cos 各 2,
 ⚠ TopK 1, Trilu 6, ReduceMin 3, ReduceMax 5, Where 8, Expand 3, Tile 1
 ```
 
-**结论：这是 DETR（可变形注意力）结构**，含 `GridSample/GatherND/Trilu/ScatterElements` 等 Pulsar2 对 AX650 支持很差的算子。要转成 axmodel，大概率需要改图（把 deformable attention 换成普通 attention 或 CPU 回退），工作量大且精度/收益不确定。
+**结论：这是 DETR（可变形注意力）结构**，含 `GridSample/GatherND/Trilu/ScatterElements` 等 Pulsar2 对 AX8850 支持很差的算子。要转成 axmodel，大概率需要改图（把 deformable attention 换成普通 attention 或 CPU 回退），工作量大且精度/收益不确定。
 
 ## 4. 收益侧：要不要版面模型？
 
@@ -75,9 +75,9 @@ Resize 8, Erf 1, Sin/Cos 各 2,
 
 ## 5. 阶段性结论
 
-1. **PP-DocLayoutV3 转 AX650 不建议**：DETR+GridSample 结构，Pulsar2 支持差；且本机无法用 paddle2onnx 导出（CPU 指令集问题）。
+1. **PP-DocLayoutV3 转 AX8850 不建议**：DETR+GridSample 结构，Pulsar2 支持差；且本机无法用 paddle2onnx 导出（CPU 指令集问题）。
 2. **先量化收益**：用 `demo/minicpm-ocr/eval_omnidoc.py --mode oracle|page` 跑 OmniDocBench 子集对比，再决定是否引入版面模型。
-3. 若最终要上版面模型，候选换成 **DocLayout-YOLO（onnx）**，转换路径与 AX650 兼容性都好得多。
+3. 若最终要上版面模型，候选换成 **DocLayout-YOLO（onnx）**，转换路径与 AX8850 兼容性都好得多。
 
 ## 6. 复现命令
 
