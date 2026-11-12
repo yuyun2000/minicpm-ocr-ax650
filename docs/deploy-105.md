@@ -52,8 +52,6 @@ sh /root/minicpm-ocr-v2/start_flask.sh     # 8088（8080 被预装 tokenizer 占
 1. **端口冲突**：105 预装 M5Stack ModuleLLM 服务占 8000（OpenAI 插件）、127.0.0.1:8080（tokenizer）、80（nginx），
    所以 OCR 网页放在 **8088**；如需 8080 需先停预装服务（不建议）。
 2. Linux 可见内存只有 1.9 GB，但 CMM 独立 6 GB，模型加载没问题；不要同时再起其它占 CMM 的大模型。
-3. **开机自启已配置**：`systemd` 两个 unit（设备偶尔会自动重启，手工脚本恢复太麻烦）：
-   - `ocr-axllm.service` → `bin/axllm serve . --port 18081`
-   - `ocr-web.service` → `python3 board_app.py`（PORT=8088 + LAYOUT_MODEL）
-   查看状态：`systemctl status ocr-axllm ocr-web`；重启：`systemctl restart ocr-axllm ocr-web`；
-   两个都是 `enable` 状态，掉电重启后自动拉起（axllm 需要 ~25 s 加载模型）。
+3. **服务已于 2026-11-12 测试结束后关闭**（用户确认测试完成）：axllm(18081) 与 Flask(8088) 均停止，
+   对应的 systemd 自启也已删除。设备上模型包与 `start_axllm.sh` / `start_flask.sh` 保留，
+   需要时执行两个脚本即可恢复（axllm 加载约 25 s）。
